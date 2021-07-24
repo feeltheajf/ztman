@@ -14,11 +14,14 @@ builder:
 build: dep
 	goreleaser build --snapshot --rm-dist
 
-.PHONY: release
-release: dep
+.PHONY: tag
+tag:
 	git tag -a $(TAG) -m "$(TAG) release"
 	git push origin $(TAG)
-	goreleaser release
+
+.PHONY: release
+release:
+	goreleaser release --rm-dist
 
 .PHONY: test
 test: unittest gosec trufflehog
