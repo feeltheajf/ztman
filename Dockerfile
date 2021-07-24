@@ -5,4 +5,6 @@ RUN apt-get update -y \
     && apt-get install -y libpcsclite-dev \
     && go install github.com/goreleaser/goreleaser@latest
 
-CMD [ "goreleaser", "release" ]
+WORKDIR /ztman
+
+ENTRYPOINT [ "goreleaser" ]

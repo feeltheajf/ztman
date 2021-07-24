@@ -10,14 +10,15 @@ dep:
 builder:
 	docker build -t $(APP)-builder .
 
+.PHONY: build
+build: dep
+	goreleaser build --snapshot --rm-dist
+
 .PHONY: release
 release: dep
 	git tag -a $(TAG) -m "$(TAG) release"
 	git push origin $(TAG)
-	docker run --rm -it \
-		-v ${CURDIR}:/ztman \
-		-e GITHUB_TOKEN \
-		$(APP)-builder
+	goreleaser release
 
 .PHONY: test
 test: unittest gosec trufflehog
