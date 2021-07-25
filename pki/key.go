@@ -113,18 +113,9 @@ func WritePublicKeySSH(filename string, key crypto.PublicKey) error {
 
 // MarshalPublicKeySSH returns OpenSSH encoding of key
 func MarshalPublicKeySSH(key crypto.PublicKey) ([]byte, error) {
-
-	// Confirm we got an rsa public key. Returned value is an interface{}
-	// sshKey, ok := rsaPubKey.(*rsa.PublicKey)
-	// if !ok {
-	// 	return nil, errors.Wrap(err, "invalid PEM passed in from user")
-	// }
-
-	// Generate the ssh public key
 	pub, err := ssh.NewPublicKey(key)
 	if err != nil {
 		return nil, err
 	}
-
 	return []byte(base64.StdEncoding.EncodeToString(pub.Marshal())), nil
 }

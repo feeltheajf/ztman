@@ -24,7 +24,8 @@ import (
 )
 
 const (
-	keyAlgorithm = piv.AlgorithmEC256
+	datetimeFormat = "2006-01-02 15:04:05"
+	keyAlgorithm   = piv.AlgorithmEC256
 
 	filePub    = "piv.pub"
 	filePubSSH = "piv-ssh.pub"
@@ -128,12 +129,14 @@ func Info(yk *piv.YubiKey) error {
 			continue
 		}
 
-		fmt.Printf("Slot %x:\n", meta.slot.Key)
-		fmt.Printf("  Algorithm:\t%s\n", crt.SignatureAlgorithm)
+		fmt.Printf("Slot %s:\n", meta.slot.String())
+		fmt.Printf("  Algorithm:\t%s\n", crt.SignatureAlgorithm.String())
 		fmt.Printf("  Subject DN:\t%s\n", crt.Subject.String())
 		fmt.Printf("  Issuer DN:\t%s\n", crt.Issuer.String())
 		fmt.Printf("  Serial:\t%d\n", crt.SerialNumber)
 		fmt.Printf("  Fingerprint:\t%x\n", sha256.Sum256(crt.Raw))
+		fmt.Printf("  Not before:\t%s\n", crt.NotBefore.Format(datetimeFormat))
+		fmt.Printf("  Not after:\t%s\n", crt.NotAfter.Format(datetimeFormat))
 	}
 	return nil
 }
