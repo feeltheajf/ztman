@@ -1,23 +1,22 @@
 package main
 
 import (
-	"bufio"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"regexp"
 	"strings"
-	"syscall"
 
 	"github.com/feeltheajf/piv-go/piv"
+	"github.com/manifoldco/promptui"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
 	"github.com/feeltheajf/ztman/config"
 	"github.com/feeltheajf/ztman/logging"
@@ -35,8 +34,28 @@ const (
 )
 
 var (
-	rePIN = regexp.MustCompile(`\d{6}`)
-	rePUK = regexp.MustCompile(`\d{8}`)
+	promptCmd = promptui.Select{
+		Label: "Select command",
+		Items: []string{"info", "init"},
+	}
+	promptReset = promptui.Prompt{
+		Label:     "Reset PIV (delete all certificates on YubiKey)",
+		IsConfirm: true,
+	}
+	promptPIN = promptui.Prompt{
+		Label:    "Enter PIN (6 digits)",
+		Validate: validatePassword(regexp.MustCompile(`^\d{6}$`), piv.DefaultPIN),
+		Mask:     '*',
+	}
+	promptPUK = promptui.Prompt{
+		Label:    "Enter PUK (8 digits)",
+		Validate: validatePassword(regexp.MustCompile(`^\d{8}$`), piv.DefaultPUK),
+		Mask:     '*',
+	}
+	promptSlot = promptui.Select{
+		Label: "Select PIV slot",
+		Items: []string{"9a", "9c"},
+	}
 
 	slots = map[string]*meta{
 		"9a": {
@@ -52,8 +71,18 @@ var (
 	}
 
 	cmd = &cobra.Command{
-		Use:     config.App,
-		Run:     wrap(Init),
+		Use: config.App,
+		Run: wrap(func(yk *piv.YubiKey) error {
+			_, cmd, _ := promptCmd.Run()
+			switch cmd {
+			case "info":
+				return Info(yk)
+			case "init":
+				return Init(yk)
+			default:
+				return errors.New("unknown command")
+			}
+		}),
 		Version: config.Version,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			level := zerolog.InfoLevel
@@ -77,9 +106,10 @@ var (
 	flags = struct {
 		debug bool
 
-		pin  string
-		puk  string
-		slot string
+		reset bool
+		pin   string
+		puk   string
+		slot  string
 	}{}
 )
 
@@ -116,6 +146,18 @@ func wrap(command func(yk *piv.YubiKey) error) func(*cobra.Command, []string) {
 	}
 }
 
+func validatePassword(re *regexp.Regexp, defaults string) func(string) error {
+	return func(input string) error {
+		if input == defaults {
+			return errors.New("default value is forbidden")
+		}
+		if !re.MatchString(input) {
+			return errors.New("invalid format")
+		}
+		return nil
+	}
+}
+
 func Info(yk *piv.YubiKey) error {
 	v := yk.Version()
 	fmt.Printf("PIV version: %d.%d.%d\n", v.Major, v.Minor, v.Patch)
@@ -145,63 +187,73 @@ func Info(yk *piv.YubiKey) error {
 }
 
 func Init(yk *piv.YubiKey) error {
-	log.Info().Msg("resetting YubiKey")
-	if err := yk.Reset(); err != nil {
-		return err
+	reset := flags.reset
+	if !reset {
+		choice, _ := promptReset.Run()
+		reset = strings.ToLower(choice) == "y"
+	}
+	if reset {
+		log.Info().Msg("resetting YubiKey")
+		if err := yk.Reset(); err != nil {
+			return err
+		}
 	}
 
-	log.Info().Msg("setting PIN")
 	pin := flags.pin
 	if pin == "" || pin == piv.DefaultPIN {
-		pin = promptSecure("Enter PIN (6 digits): ", piv.DefaultPIN, rePIN)
+		pin, _ = promptPIN.Run()
 	}
-	if err := yk.SetPIN(piv.DefaultPIN, pin); err != nil {
-		return err
+	if reset {
+		log.Info().Msg("setting PIN")
+		if err := yk.SetPIN(piv.DefaultPIN, pin); err != nil {
+			return err
+		}
 	}
 
-	log.Info().Msg("setting PUK")
 	puk := flags.puk
 	if puk == "" || puk == piv.DefaultPUK {
-		puk = promptSecure("Enter PUK (8 digits): ", piv.DefaultPUK, rePUK)
+		puk, _ = promptPUK.Run()
 	}
-	if err := yk.SetPUK(piv.DefaultPUK, puk); err != nil {
-		return err
+	if reset {
+		log.Info().Msg("setting PUK")
+		if err := yk.SetPUK(piv.DefaultPUK, puk); err != nil {
+			return err
+		}
 	}
 
-	log.Info().Msg("setting management key")
 	mk := [24]byte{}
-	_, err := io.ReadFull(rand.Reader, mk[:])
-	if err != nil {
-		return err
-	}
-	log.Debug().Str("mk", hex.EncodeToString(mk[:])).Msg("generated")
-	if err := yk.SetManagementKey(piv.DefaultManagementKey, mk); err != nil {
-		return err
-	}
+	if reset {
+		log.Info().Msg("setting management key")
+		if _, err := io.ReadFull(rand.Reader, mk[:]); err != nil {
+			return err
+		}
+		if err := yk.SetManagementKey(piv.DefaultManagementKey, mk); err != nil {
+			return err
+		}
 
-	log.Info().Msg("storing management key on the card")
-	m := &piv.Metadata{
-		ManagementKey: &mk,
+		log.Info().Msg("storing management key on the card")
+		m := &piv.Metadata{
+			ManagementKey: &mk,
+		}
+		if err := yk.SetMetadata(mk, m); err != nil {
+			return err
+		}
+	} else {
+		log.Info().Msg("getting management key")
+		m, err := yk.Metadata(pin)
+		if err != nil {
+			return err
+		}
+		if m.ManagementKey == nil {
+			return errors.New("management key not set")
+		}
+		mk = *m.ManagementKey
 	}
-	if err := yk.SetMetadata(mk, m); err != nil {
-		return err
-	}
-
-	// TODO proper update CHUID
-	// https://github.com/go-piv/piv-go/issues/66
-	log.Info().Msg("generating CHUID")
-	chuid := [16]byte{}
-	_, err = io.ReadFull(rand.Reader, chuid[:])
-	if err != nil {
-		return err
-	}
-	if err := yk.SetCardID(mk, &piv.CardID{GUID: chuid}); err != nil {
-		return err
-	}
+	log.Debug().Str("mk", hex.EncodeToString(mk[:])).Msg("using")
 
 	s := flags.slot
 	if s == "" {
-		s = prompt("PIV Slot: ", "9a", "9c")
+		_, s, _ = promptSlot.Run()
 	}
 	meta := slots[s]
 	slot := meta.slot
@@ -249,71 +301,38 @@ func Init(yk *piv.YubiKey) error {
 
 	pathCrt := config.Path(slot.String(), fileCrt)
 	var crt *x509.Certificate
-	for {
-		ctx.Info().Str("path", pathCrt).Msg("request certificate and press enter to continue")
-		fmt.Scanln()
+	p := promptui.Prompt{
+		Label: "Request certificate and save it to " + pathCrt,
+		Validate: func(input string) error {
+			crt, err = pki.ReadCertificate(pathCrt)
+			return err
+		},
+	}
+	p.Run()
 
-		crt, err = pki.ReadCertificate(pathCrt)
-		if err != nil {
-			ctx.Error().Err(err).Msg("loading certificate")
-		} else {
-			break
-		}
+	ctx.Info().Msg("setting certificate")
+	if err := yk.SetCertificate(mk, slot, crt); err != nil {
+		return err
 	}
 
-	if err := yk.SetCertificate(mk, slot, crt); err != nil {
+	// TODO proper update CHUID
+	// https://github.com/go-piv/piv-go/issues/66
+	log.Info().Msg("generating CHUID")
+	chuid := [16]byte{}
+	if _, err := io.ReadFull(rand.Reader, chuid[:]); err != nil {
+		return err
+	}
+	if err := yk.SetCardID(mk, &piv.CardID{GUID: chuid}); err != nil {
 		return err
 	}
 
 	return Info(yk)
 }
 
-func prompt(msg string, expected ...string) string {
-	for {
-		fmt.Print(msg)
-		reader := bufio.NewReader(os.Stdin)
-		text, _ := reader.ReadString('\n')
-		text = strings.TrimSpace(text)
-		if text == "" {
-			continue
-		}
-
-		if expected == nil {
-			return text
-		}
-
-		for _, v := range expected {
-			if v == text {
-				return text
-			}
-		}
-		log.Error().Strs("expected", expected).Msg("invalid value")
-	}
-}
-
-func promptSecure(msg string, defaults string, re *regexp.Regexp) string {
-	for {
-		fmt.Print(msg)
-		b, _ := term.ReadPassword(int(syscall.Stdin))
-		fmt.Println()
-
-		if string(b) == defaults {
-			log.Error().Msg("default value is forbidden")
-			continue
-		}
-
-		if !re.Match(b) {
-			log.Error().Msg("invalid format")
-			continue
-		}
-
-		return string(b)
-	}
-}
-
 func main() {
 	cmd.PersistentFlags().BoolVarP(&flags.debug, "debug", "d", false, "enable debug logging")
 
+	cmdInit.Flags().BoolVarP(&flags.reset, "reset", "r", false, "reset PIV application")
 	cmdInit.Flags().StringVar(&flags.pin, "pin", "", "PIV PIN")
 	cmdInit.Flags().StringVar(&flags.puk, "puk", "", "PIV PUK")
 	cmdInit.Flags().StringVarP(&flags.slot, "slot", "s", "", "PIV slot to initialize")
