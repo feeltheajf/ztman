@@ -1,4 +1,5 @@
 APP = ztman
+IMG = $(APP)-builder
 COV = coverage.out
 TAG = v$(shell cat VERSION)
 
@@ -8,11 +9,18 @@ dep:
 
 .PHONY: builder
 builder:
-	docker build -t $(APP)-builder .
+	docker build -t $(IMG) .
 
 .PHONY: build
 build: dep
 	goreleaser build --snapshot --rm-dist
+	docker run --rm -it \
+		-v ${CURDIR}:/ztman \
+		$(IMG) \
+		build \
+		--snapshot \
+		--rm-dist \
+		--config .goreleaser.linux.yml
 
 .PHONY: release
 release: dep
@@ -22,7 +30,7 @@ release: dep
 	docker run --rm -it \
 		-v ${CURDIR}:/ztman \
 		-e GITHUB_TOKEN \
-		$(APP)-builder \
+		$(IMG) \
 		release \
 		--rm-dist \
 		--config .goreleaser.linux.yml

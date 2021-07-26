@@ -1,8 +1,9 @@
+dist: dist-linux
 builds:
   - env:
       - CGO_ENABLED=1
     goos:
-      - linux
+      - windows
     goarch:
       - amd64
     ldflags:
