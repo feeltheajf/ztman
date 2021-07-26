@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -12,7 +13,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/go-piv/piv-go/piv"
+	"github.com/feeltheajf/piv-go/piv"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -25,7 +26,6 @@ import (
 
 const (
 	datetimeFormat = "2006-01-02 15:04:05"
-	keyAlgorithm   = piv.AlgorithmEC256
 
 	filePub    = "piv.pub"
 	filePubSSH = "piv-ssh.pub"
@@ -35,6 +35,9 @@ const (
 )
 
 var (
+	rePIN = regexp.MustCompile(`\d{6}`)
+	rePUK = regexp.MustCompile(`\d{8}`)
+
 	slots = map[string]*meta{
 		"9a": {
 			piv.SlotAuthentication,
@@ -150,7 +153,7 @@ func Init(yk *piv.YubiKey) error {
 	log.Info().Msg("setting PIN")
 	pin := flags.pin
 	if pin == "" || pin == piv.DefaultPIN {
-		pin = promptSecure("Enter PIN (6 digits): ", piv.DefaultPIN, regexp.MustCompile(`\d{6}`))
+		pin = promptSecure("Enter PIN (6 digits): ", piv.DefaultPIN, rePIN)
 	}
 	if err := yk.SetPIN(piv.DefaultPIN, pin); err != nil {
 		return err
@@ -159,7 +162,7 @@ func Init(yk *piv.YubiKey) error {
 	log.Info().Msg("setting PUK")
 	puk := flags.puk
 	if puk == "" || puk == piv.DefaultPUK {
-		puk = promptSecure("Enter PUK (8 digits): ", piv.DefaultPUK, regexp.MustCompile(`\d{6}`))
+		puk = promptSecure("Enter PUK (8 digits): ", piv.DefaultPUK, rePUK)
 	}
 	if err := yk.SetPUK(piv.DefaultPUK, puk); err != nil {
 		return err
@@ -171,6 +174,7 @@ func Init(yk *piv.YubiKey) error {
 	if err != nil {
 		return err
 	}
+	log.Debug().Str("mk", hex.EncodeToString(mk[:])).Msg("generated")
 	if err := yk.SetManagementKey(piv.DefaultManagementKey, mk); err != nil {
 		return err
 	}
@@ -180,6 +184,18 @@ func Init(yk *piv.YubiKey) error {
 		ManagementKey: &mk,
 	}
 	if err := yk.SetMetadata(mk, m); err != nil {
+		return err
+	}
+
+	// TODO proper update CHUID
+	// https://github.com/go-piv/piv-go/issues/66
+	log.Info().Msg("generating CHUID")
+	chuid := [16]byte{}
+	_, err = io.ReadFull(rand.Reader, chuid[:])
+	if err != nil {
+		return err
+	}
+	if err := yk.SetCardID(mk, &piv.CardID{GUID: chuid}); err != nil {
 		return err
 	}
 
@@ -198,7 +214,7 @@ func Init(yk *piv.YubiKey) error {
 
 	ctx.Info().Msg("generating private key")
 	key := piv.Key{
-		Algorithm:   keyAlgorithm,
+		Algorithm:   piv.AlgorithmEC256,
 		PINPolicy:   meta.pinPolicy,
 		TouchPolicy: meta.touchPolicy,
 	}
@@ -254,8 +270,8 @@ func Init(yk *piv.YubiKey) error {
 
 func prompt(msg string, expected ...string) string {
 	for {
-		reader := bufio.NewReader(os.Stdin)
 		fmt.Print(msg)
+		reader := bufio.NewReader(os.Stdin)
 		text, _ := reader.ReadString('\n')
 		text = strings.TrimSpace(text)
 		if text == "" {
