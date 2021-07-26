@@ -19,6 +19,13 @@ release: dep
 	git tag -a $(TAG) -m "$(TAG) release"
 	git push origin $(TAG)
 	goreleaser release --rm-dist
+	docker run --rm -it \
+		-v ${CURDIR}:/ztman \
+		-e GITHUB_TOKEN \
+		$(APP)-builder \
+		release \
+		--rm-dist \
+		--config .goreleaser.linux.yml
 
 .PHONY: test
 test: unittest gosec trufflehog
