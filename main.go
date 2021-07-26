@@ -34,6 +34,8 @@ const (
 )
 
 var (
+	Version = "DEV" // from Go build system
+
 	promptCmd = promptui.Select{
 		Label: "Select command",
 		Items: []string{"info", "init"},
@@ -83,7 +85,7 @@ var (
 				return errors.New("unknown command")
 			}
 		}),
-		Version: config.Version,
+		Version: Version,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			level := zerolog.InfoLevel
 			if flags.debug {

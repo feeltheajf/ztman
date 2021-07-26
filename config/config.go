@@ -7,8 +7,7 @@ import (
 )
 
 const (
-	App     = "ztman"
-	Version = "DEV"
+	App = "ztman"
 
 	permissionsFile      = 0600
 	permissionsDirectory = 0700
