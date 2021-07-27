@@ -130,7 +130,7 @@ func (c *scContext) Connect(reader string) (*scHandle, error) {
 	r0, _, _ := procSCardConnectW.Call(
 		uintptr(c.ctx),
 		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(reader))),
-		scardShareExclusive,
+		scardScopeSystem,
 		scardProtocolT1,
 		uintptr(unsafe.Pointer(&handle)),
 		uintptr(activeProtocol),

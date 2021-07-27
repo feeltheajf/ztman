@@ -1,6 +1,6 @@
 # github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
 github.com/chzyer/readline
-# github.com/feeltheajf/piv-go v1.8.3
+# github.com/feeltheajf/piv-go v1.8.4
 ## explicit
 github.com/feeltheajf/piv-go/piv
 # github.com/inconshreveable/mousetrap v1.0.0
