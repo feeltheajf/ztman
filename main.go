@@ -37,7 +37,7 @@ const (
 )
 
 var (
-	Version = "DEV" // from Go build system
+	version = "DEV" // from Go build system
 
 	promptCmd = promptui.Select{
 		Label: "Select command",
@@ -77,7 +77,7 @@ var (
 
 	cmd = &cobra.Command{
 		Use:     config.App,
-		Version: Version,
+		Version: version,
 		Run: wrap(func(yk *piv.YubiKey) error {
 			_, cmd, err := promptCmd.Run()
 			if err != nil {
