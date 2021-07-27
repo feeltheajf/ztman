@@ -594,7 +594,10 @@ func (yk *YubiKey) SetCertificate(key [24]byte, slot Slot, cert *x509.Certificat
 	if err := ykAuthenticate(yk.tx, key, yk.rand); err != nil {
 		return fmt.Errorf("authenticating with management key: %w", err)
 	}
-	return ykStoreCertificate(yk.tx, slot, cert)
+	if err := ykStoreCertificate(yk.tx, slot, cert); err != nil {
+		return err
+	}
+	return ykSetCardID(yk.tx, key, &CardID{GUID: generateGUID()})
 }
 
 func ykStoreCertificate(tx *scTx, slot Slot, cert *x509.Certificate) error {

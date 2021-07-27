@@ -988,3 +988,12 @@ func ykSetCardID(tx *scTx, key [24]byte, id *CardID) error {
 
 	return nil
 }
+
+func generateGUID() [16]byte {
+	guid := [16]byte{}
+	_, err := io.ReadFull(rand.Reader, guid[:])
+	if err != nil {
+		panic(err)
+	}
+	return guid
+}

@@ -38,7 +38,7 @@ var (
 
 	promptCmd = promptui.Select{
 		Label: "Select command",
-		Items: []string{"info", "init"},
+		Items: []string{"info", "init", "update"},
 	}
 	promptReset = promptui.Prompt{
 		Label:     "Reset PIV (delete all certificates on YubiKey)",
@@ -73,7 +73,8 @@ var (
 	}
 
 	cmd = &cobra.Command{
-		Use: config.App,
+		Use:     config.App,
+		Version: Version,
 		Run: wrap(func(yk *piv.YubiKey) error {
 			_, cmd, _ := promptCmd.Run()
 			switch cmd {
@@ -81,11 +82,12 @@ var (
 				return Info(yk)
 			case "init":
 				return Init(yk)
+			case "update":
+				return Update(yk)
 			default:
 				return errors.New("unknown command")
 			}
 		}),
-		Version: Version,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			level := zerolog.InfoLevel
 			if flags.debug {
@@ -94,15 +96,20 @@ var (
 			logging.Setup(level)
 		},
 	}
-
 	cmdInfo = &cobra.Command{
-		Use: "info",
-		Run: wrap(Info),
+		Use:   "info",
+		Run:   wrap(Info),
+		Short: "Display general status",
 	}
-
 	cmdInit = &cobra.Command{
-		Use: "init",
-		Run: wrap(Init),
+		Use:   "init",
+		Run:   wrap(Init),
+		Short: "Init YubiKey PIV slots",
+	}
+	cmdUpdate = &cobra.Command{
+		Use:   "update",
+		Run:   wrap(Update),
+		Short: "Update PIV certificate",
 	}
 
 	flags = struct {
@@ -212,11 +219,11 @@ func Init(yk *piv.YubiKey) error {
 		}
 	}
 
-	puk := flags.puk
-	if puk == "" || puk == piv.DefaultPUK {
-		puk, _ = promptPUK.Run()
-	}
 	if reset {
+		puk := flags.puk
+		if puk == "" || puk == piv.DefaultPUK {
+			puk, _ = promptPUK.Run()
+		}
 		log.Info().Msg("setting PUK")
 		if err := yk.SetPUK(piv.DefaultPUK, puk); err != nil {
 			return err
@@ -259,8 +266,6 @@ func Init(yk *piv.YubiKey) error {
 	}
 	meta := slots[s]
 	slot := meta.slot
-
-	log.Info().Msgf("initializing slot %s", slot.String())
 	ctx := log.With().Str("slot", slot.String()).Logger()
 	if err := config.Mkdir(config.Path(s)); err != nil {
 		return err
@@ -317,14 +322,41 @@ func Init(yk *piv.YubiKey) error {
 		return err
 	}
 
-	// TODO proper update CHUID
-	// https://github.com/go-piv/piv-go/issues/66
-	log.Info().Msg("generating CHUID")
-	chuid := [16]byte{}
-	if _, err := io.ReadFull(rand.Reader, chuid[:]); err != nil {
+	return Info(yk)
+}
+
+func Update(yk *piv.YubiKey) error {
+	pin := flags.pin
+	if pin == "" || pin == piv.DefaultPIN {
+		pin, _ = promptPIN.Run()
+	}
+
+	log.Info().Msg("getting management key")
+	m, err := yk.Metadata(pin)
+	if err != nil {
 		return err
 	}
-	if err := yk.SetCardID(mk, &piv.CardID{GUID: chuid}); err != nil {
+	if m.ManagementKey == nil {
+		return errors.New("management key not set")
+	}
+	mk := *m.ManagementKey
+	log.Debug().Str("mk", hex.EncodeToString(mk[:])).Msg("using")
+
+	s := flags.slot
+	if s == "" {
+		_, s, _ = promptSlot.Run()
+	}
+	meta := slots[s]
+	slot := meta.slot
+	ctx := log.With().Str("slot", slot.String()).Logger()
+
+	pathCrt := config.Path(slot.String(), fileCrt)
+	crt, err := pki.ReadCertificate(pathCrt)
+	if err != nil {
+		return err
+	}
+	ctx.Info().Msg("setting certificate")
+	if err := yk.SetCertificate(mk, slot, crt); err != nil {
 		return err
 	}
 
@@ -332,15 +364,18 @@ func Init(yk *piv.YubiKey) error {
 }
 
 func main() {
-	cmd.PersistentFlags().BoolVarP(&flags.debug, "debug", "d", false, "enable debug logging")
+	cmd.CompletionOptions.DisableDefaultCmd = true
 
-	cmdInit.Flags().BoolVarP(&flags.reset, "reset", "r", false, "reset PIV application")
-	cmdInit.Flags().StringVar(&flags.pin, "pin", "", "PIV PIN")
+	cmd.PersistentFlags().BoolVarP(&flags.debug, "debug", "d", false, "enable debug logging")
+	cmd.PersistentFlags().StringVarP(&flags.pin, "pin", "p", "", "PIV PIN")
+	cmd.PersistentFlags().StringVarP(&flags.slot, "slot", "s", "", "PIV slot")
+
+	cmdInit.Flags().BoolVar(&flags.reset, "reset", false, "reset PIV application")
 	cmdInit.Flags().StringVar(&flags.puk, "puk", "", "PIV PUK")
-	cmdInit.Flags().StringVarP(&flags.slot, "slot", "s", "", "PIV slot to initialize")
 
 	cmd.AddCommand(cmdInfo)
 	cmd.AddCommand(cmdInit)
+	cmd.AddCommand(cmdUpdate)
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(64)
