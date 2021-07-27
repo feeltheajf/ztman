@@ -1,26 +1,12 @@
 package logging
 
 import (
-	"fmt"
 	"os"
+
+	"github.com/fatih/color"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-)
-
-// supported colors
-const (
-	colorBlack = iota + 30
-	colorRed
-	colorGreen
-	colorYellow
-	colorBlue
-	colorMagenta
-	colorCyan
-	colorWhite
-
-	colorBold     = 1
-	colorDarkGray = 90
 )
 
 // Setup initializes global logging subsystem
@@ -39,25 +25,20 @@ func consoleFormatLevel(level interface{}) string {
 	if levelString, ok := level.(string); ok {
 		switch levelString {
 		case "trace":
-			return colorize("[T]", colorMagenta)
+			return color.MagentaString("[T]")
 		case "debug":
-			return colorize("[D]", colorCyan)
+			return color.CyanString("[D]")
 		case "info":
-			return colorize("[I]", colorGreen)
+			return color.GreenString("[I]")
 		case "warn":
-			return colorize("[W]", colorYellow)
+			return color.YellowString("[W]")
 		case "error":
-			return colorize("[E]", colorRed)
+			return color.RedString("[E]")
 		case "fatal":
-			return colorize(colorize("[F]", colorRed), colorBold)
+			return color.New(color.FgRed, color.Bold).Sprint("[F]")
 		case "panic":
-			return colorize(colorize("[P]", colorRed), colorBold)
+			return color.New(color.FgRed, color.Bold).Sprint("[P]")
 		}
 	}
-	return colorize("[?]", colorBold)
-}
-
-// colorize returns ANSI-colored strings
-func colorize(message string, color int) string {
-	return fmt.Sprintf("\x1b[%dm%s\x1b[0m", color, message)
+	return color.New(color.Bold).Sprint("[?]")
 }
