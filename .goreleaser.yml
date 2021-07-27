@@ -11,3 +11,5 @@ builds:
       - -s -w -X main.version={{ .Version }}
 archives:
   - format: zip
+    replacements:
+      darwin: macos
