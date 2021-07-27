@@ -410,6 +410,8 @@ func Load(yk *piv.YubiKey) (err error) {
 }
 
 func main() {
+	cobra.MousetrapHelpText = ""
+
 	cmd.CompletionOptions.DisableDefaultCmd = true
 
 	cmd.PersistentFlags().BoolVarP(&flags.debug, "debug", "d", false, "debug mode")
