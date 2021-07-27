@@ -10,8 +10,4 @@ builds:
     ldflags:
       - -s -w -X main.version={{ .Version }}
 archives:
-  - format: binary
-    replacements:
-      amd64: intel
-      arm64: m1
-      darwin: macos
+  - format: zip
