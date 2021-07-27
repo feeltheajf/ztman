@@ -28,6 +28,7 @@ import (
 
 const (
 	datetimeFormat = "2006-01-02 15:04:05"
+	waitPromptExit = runtime.GOOS == "windows"
 
 	filePub    = "piv.pub"
 	filePubSSH = "piv-ssh.pub"
@@ -61,6 +62,10 @@ var (
 	promptSlot = promptui.Select{
 		Label: "Select PIV slot",
 		Items: []string{"9a", "9c"},
+	}
+	promptExit = promptui.Select{
+		Label: "Press enter to exit",
+		Items: []string{"ok"},
 	}
 
 	slots = map[string]*meta{
@@ -135,50 +140,45 @@ type meta struct {
 	touchPolicy piv.TouchPolicy
 }
 
-func exit(msg string, err error) {
-	if runtime.GOOS != "windows" {
-		log.Fatal().Err(err).Msg(msg)
-	}
-	log.Error().Err(err).Msg(msg)
-	p := promptui.Select{
-		Label: "Press enter to exit",
-		Items: []string{"ok"},
-	}
-	p.Run()
-}
-
 func wrap(command func(yk *piv.YubiKey) error) func(*cobra.Command, []string) {
 	return func(*cobra.Command, []string) {
 		cards, err := piv.Cards()
 		if err != nil {
-			exit("listing available smart cards", err)
-			return
+			log.Error().Err(err).Msg("listing available smart cards")
+			exit(1)
 		}
 
 		var yk *piv.YubiKey
 		for _, card := range cards {
 			if strings.Contains(strings.ToLower(card), "yubikey") {
 				if yk, err = piv.Open(card); err != nil {
-					exit("connecting to YubiKey", err)
-					return
+					log.Error().Err(err).Msg("connecting to YubiKey")
+					exit(1)
 				}
 				break
 			}
 		}
 		if yk == nil {
-			exit("no YubiKey detected", nil)
-			return
+			log.Error().Msg("no YubiKey detected")
+			exit(1)
 		}
 		defer yk.Close()
 
 		switch err := command(yk); err {
 		case nil, promptui.ErrInterrupt, promptui.ErrEOF:
-			break
+			exit(0)
 		default:
-			exit("fatal", err)
-			return
+			log.Error().Err(err).Msg("fatal")
+			exit(1)
 		}
 	}
+}
+
+func exit(code int) {
+	if waitPromptExit {
+		promptExit.Run()
+	}
+	os.Exit(code)
 }
 
 func validatePassword(re *regexp.Regexp, defaults string) func(string) error {
