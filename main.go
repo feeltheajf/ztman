@@ -41,15 +41,15 @@ var (
 
 	promptCmd = promptui.Select{
 		Label: "Select command",
-		Items: []string{"info", "init", "update"},
+		Items: []string{"info", "init", "load"},
 	}
-	promptReset = promptui.Prompt{
-		Label:     "Reset PIV (delete all certificates on YubiKey)",
-		IsConfirm: true,
+	promptReset = promptui.Select{
+		Label: "Reset the YubiKey PIV application (delete all certificates)",
+		Items: []string{"no", "yes"},
 	}
 	promptPIN = promptui.Prompt{
-		Label:    "Enter PIN (6 digits)",
-		Validate: validatePassword(regexp.MustCompile(`^\d{6}$`), piv.DefaultPIN),
+		Label:    "Enter PIN (6-8 digits)",
+		Validate: validatePassword(regexp.MustCompile(`^\d{6,8}$`), piv.DefaultPIN),
 		Mask:     '*',
 	}
 	promptPUK = promptui.Prompt{
@@ -79,14 +79,17 @@ var (
 		Use:     config.App,
 		Version: Version,
 		Run: wrap(func(yk *piv.YubiKey) error {
-			_, cmd, _ := promptCmd.Run()
+			_, cmd, err := promptCmd.Run()
+			if err != nil {
+				return err
+			}
 			switch cmd {
 			case "info":
 				return Info(yk)
 			case "init":
 				return Init(yk)
-			case "update":
-				return Update(yk)
+			case "load":
+				return Load(yk)
 			default:
 				return errors.New("unknown command")
 			}
@@ -102,17 +105,17 @@ var (
 	cmdInfo = &cobra.Command{
 		Use:   "info",
 		Run:   wrap(Info),
-		Short: "Display general status",
+		Short: "Display general status of the PIV application",
 	}
 	cmdInit = &cobra.Command{
 		Use:   "init",
 		Run:   wrap(Init),
-		Short: "Init YubiKey PIV slots",
+		Short: "Initial configuration of the YubiKey and PIV slots",
 	}
-	cmdUpdate = &cobra.Command{
-		Use:   "update",
-		Run:   wrap(Update),
-		Short: "Update PIV certificate",
+	cmdLoad = &cobra.Command{
+		Use:   "load",
+		Run:   wrap(Load),
+		Short: "Write a certificate to one of the PIV slots on the YubiKey",
 	}
 
 	flags = struct {
@@ -152,7 +155,10 @@ func wrap(command func(yk *piv.YubiKey) error) func(*cobra.Command, []string) {
 		}
 		defer yk.Close()
 
-		if err := command(yk); err != nil {
+		switch err := command(yk); err {
+		case nil, promptui.ErrInterrupt, promptui.ErrEOF:
+			break
+		default:
 			log.Fatal().Err(err).Msg("fatal")
 		}
 	}
@@ -170,7 +176,7 @@ func validatePassword(re *regexp.Regexp, defaults string) func(string) error {
 	}
 }
 
-func Info(yk *piv.YubiKey) error {
+func Info(yk *piv.YubiKey) (err error) {
 	v := yk.Version()
 	fmt.Printf("PIV version: %d.%d.%d\n", v.Major, v.Minor, v.Patch)
 
@@ -198,11 +204,14 @@ func Info(yk *piv.YubiKey) error {
 	return nil
 }
 
-func Init(yk *piv.YubiKey) error {
+func Init(yk *piv.YubiKey) (err error) {
 	reset := flags.reset
 	if !reset {
-		choice, _ := promptReset.Run()
-		reset = strings.ToLower(choice) == "y"
+		_, choice, err := promptReset.Run()
+		if err != nil {
+			return err
+		}
+		reset = choice == "yes"
 	}
 	if reset {
 		log.Info().Msg("resetting YubiKey")
@@ -213,7 +222,10 @@ func Init(yk *piv.YubiKey) error {
 
 	pin := flags.pin
 	if pin == "" || pin == piv.DefaultPIN {
-		pin, _ = promptPIN.Run()
+		pin, err = promptPIN.Run()
+		if err != nil {
+			return err
+		}
 	}
 	if reset {
 		log.Info().Msg("setting PIN")
@@ -225,7 +237,10 @@ func Init(yk *piv.YubiKey) error {
 	if reset {
 		puk := flags.puk
 		if puk == "" || puk == piv.DefaultPUK {
-			puk, _ = promptPUK.Run()
+			puk, err = promptPUK.Run()
+			if err != nil {
+				return err
+			}
 		}
 		log.Info().Msg("setting PUK")
 		if err := yk.SetPUK(piv.DefaultPUK, puk); err != nil {
@@ -265,7 +280,10 @@ func Init(yk *piv.YubiKey) error {
 
 	s := flags.slot
 	if s == "" {
-		_, s, _ = promptSlot.Run()
+		_, s, err = promptSlot.Run()
+		if err != nil {
+			return err
+		}
 	}
 	meta := slots[s]
 	slot := meta.slot
@@ -291,7 +309,7 @@ func Init(yk *piv.YubiKey) error {
 		return err
 	}
 
-	ctx.Info().Msg("loading intermediate attestation statement")
+	ctx.Info().Msg("generating intermediate attestation certificate")
 	intAtt, err := yk.AttestationCertificate()
 	if err != nil {
 		return err
@@ -300,7 +318,7 @@ func Init(yk *piv.YubiKey) error {
 		return err
 	}
 
-	ctx.Info().Msg("generating attestation statement")
+	ctx.Info().Msg("generating attestation certificate")
 	att, err := yk.Attest(slot)
 	if err != nil {
 		return err
@@ -334,29 +352,17 @@ func Init(yk *piv.YubiKey) error {
 		return err
 	}
 
-	pathCrt := config.Path(slot.String(), fileCrt)
-	var crt *x509.Certificate
-	p := promptui.Prompt{
-		Label: "Request certificate and save it to " + pathCrt,
-		Validate: func(input string) error {
-			crt, err = pki.ReadCertificate(pathCrt)
-			return err
-		},
-	}
-	p.Run()
-
-	ctx.Info().Msg("setting certificate")
-	if err := yk.SetCertificate(mk, slot, crt); err != nil {
-		return err
-	}
-
-	return Info(yk)
+	ctx.Info().Str("path", config.Path(s)).Msg("finished")
+	return nil
 }
 
-func Update(yk *piv.YubiKey) error {
+func Load(yk *piv.YubiKey) (err error) {
 	pin := flags.pin
 	if pin == "" || pin == piv.DefaultPIN {
-		pin, _ = promptPIN.Run()
+		pin, err = promptPIN.Run()
+		if err != nil {
+			return err
+		}
 	}
 
 	log.Info().Msg("getting management key")
@@ -372,18 +378,30 @@ func Update(yk *piv.YubiKey) error {
 
 	s := flags.slot
 	if s == "" {
-		_, s, _ = promptSlot.Run()
+		_, s, err = promptSlot.Run()
+		if err != nil {
+			return err
+		}
 	}
 	meta := slots[s]
 	slot := meta.slot
 	ctx := log.With().Str("slot", slot.String()).Logger()
 
 	pathCrt := config.Path(slot.String(), fileCrt)
+	p := promptui.Select{
+		Label: "Load certificate from " + pathCrt,
+		Items: []string{"ok"},
+	}
+	_, _, err = p.Run()
+	if err != nil {
+		return err
+	}
+
+	ctx.Info().Str("path", pathCrt).Msg("setting certificate")
 	crt, err := pki.ReadCertificate(pathCrt)
 	if err != nil {
 		return err
 	}
-	ctx.Info().Msg("setting certificate")
 	if err := yk.SetCertificate(mk, slot, crt); err != nil {
 		return err
 	}
@@ -394,16 +412,19 @@ func Update(yk *piv.YubiKey) error {
 func main() {
 	cmd.CompletionOptions.DisableDefaultCmd = true
 
-	cmd.PersistentFlags().BoolVarP(&flags.debug, "debug", "d", false, "enable debug logging")
-	cmd.PersistentFlags().StringVarP(&flags.pin, "pin", "p", "", "PIV PIN")
-	cmd.PersistentFlags().StringVarP(&flags.slot, "slot", "s", "", "PIV slot")
+	cmd.PersistentFlags().BoolVarP(&flags.debug, "debug", "d", false, "debug mode")
 
 	cmdInit.Flags().BoolVar(&flags.reset, "reset", false, "reset PIV application")
+	cmdInit.Flags().StringVarP(&flags.pin, "pin", "p", "", "PIV PIN")
 	cmdInit.Flags().StringVar(&flags.puk, "puk", "", "PIV PUK")
+	cmdInit.Flags().StringVarP(&flags.slot, "slot", "s", "", "PIV slot")
+
+	cmdLoad.Flags().StringVarP(&flags.pin, "pin", "p", "", "PIV PIN")
+	cmdLoad.Flags().StringVarP(&flags.slot, "slot", "s", "", "PIV slot")
 
 	cmd.AddCommand(cmdInfo)
 	cmd.AddCommand(cmdInit)
-	cmd.AddCommand(cmdUpdate)
+	cmd.AddCommand(cmdLoad)
 
 	if err := cmd.Execute(); err != nil {
 		os.Exit(64)
