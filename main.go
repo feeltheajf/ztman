@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/user"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/feeltheajf/piv-go/piv"
@@ -134,24 +135,39 @@ type meta struct {
 	touchPolicy piv.TouchPolicy
 }
 
+func exit(msg string, err error) {
+	if runtime.GOOS != "windows" {
+		log.Fatal().Err(err).Msg(msg)
+	}
+	log.Error().Err(err).Msg(msg)
+	p := promptui.Select{
+		Label: "Press enter to exit",
+		Items: []string{"ok"},
+	}
+	p.Run()
+}
+
 func wrap(command func(yk *piv.YubiKey) error) func(*cobra.Command, []string) {
 	return func(*cobra.Command, []string) {
 		cards, err := piv.Cards()
 		if err != nil {
-			log.Fatal().Err(err).Msg("listing available smart cards")
+			exit("listing available smart cards", err)
+			return
 		}
 
 		var yk *piv.YubiKey
 		for _, card := range cards {
 			if strings.Contains(strings.ToLower(card), "yubikey") {
 				if yk, err = piv.Open(card); err != nil {
-					log.Fatal().Err(err).Msg("connecting to YubiKey")
+					exit("connecting to YubiKey", err)
+					return
 				}
 				break
 			}
 		}
 		if yk == nil {
-			log.Fatal().Msg("no YubiKey detected")
+			exit("no YubiKey detected", nil)
+			return
 		}
 		defer yk.Close()
 
@@ -159,7 +175,8 @@ func wrap(command func(yk *piv.YubiKey) error) func(*cobra.Command, []string) {
 		case nil, promptui.ErrInterrupt, promptui.ErrEOF:
 			break
 		default:
-			log.Fatal().Err(err).Msg("fatal")
+			exit("fatal", err)
+			return
 		}
 	}
 }
