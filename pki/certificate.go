@@ -36,7 +36,7 @@ func WriteCertificate(filename string, crt *x509.Certificate) error {
 	return config.WriteFile(filename, raw)
 }
 
-// MarshalCertificate returns PEM encoding of crt
+// MarshalCertificate returns PEM encoding of certificate
 func MarshalCertificate(crt *x509.Certificate) ([]byte, error) {
 	block := &pem.Block{
 		Type:  pemTypeCertificate,

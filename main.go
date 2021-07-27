@@ -4,11 +4,13 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/user"
 	"regexp"
 	"strings"
 
@@ -30,6 +32,7 @@ const (
 	filePubSSH = "piv-ssh.pub"
 	fileIntAtt = "piv-attestation-intermediate.crt"
 	fileAtt    = "piv-attestation.crt"
+	fileCSR    = "piv.csr"
 	fileCrt    = "piv.crt"
 )
 
@@ -303,6 +306,31 @@ func Init(yk *piv.YubiKey) error {
 		return err
 	}
 	if err := pki.WriteCertificate(config.Path(s, fileAtt), att); err != nil {
+		return err
+	}
+
+	ctx.Info().Msg("generating certificate request")
+	serial, err := yk.Serial()
+	if err != nil {
+		return err
+	}
+	me, _ := user.Current()
+	tpl := &x509.CertificateRequest{
+		Subject: pkix.Name{
+			CommonName:   me.Username,
+			SerialNumber: fmt.Sprintf("%d", serial),
+		},
+	}
+	auth := piv.KeyAuth{PIN: pin}
+	priv, err := yk.PrivateKey(slot, pub, auth)
+	if err != nil {
+		return err
+	}
+	csr, err := pki.NewCertificateRequest(tpl, priv)
+	if err != nil {
+		return err
+	}
+	if err := pki.WriteCertificateRequest(config.Path(s, fileCSR), csr); err != nil {
 		return err
 	}
 

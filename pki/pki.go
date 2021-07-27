@@ -1,7 +1,8 @@
 package pki
 
 const (
-	pemTypeCertificate  = "CERTIFICATE"
-	pemTypeECPrivateKey = "EC PRIVATE KEY"
-	pemTypePublicKey    = "PUBLIC KEY"
+	pemTypeCertificate        = "CERTIFICATE"
+	pemTypeCertificateRequest = "CERTIFICATE REQUEST"
+	pemTypeECPrivateKey       = "EC PRIVATE KEY"
+	pemTypePublicKey          = "PUBLIC KEY"
 )
