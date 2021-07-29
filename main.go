@@ -423,7 +423,8 @@ func Load(yk *piv.YubiKey) (err error) {
 		return err
 	}
 
-	return Info(yk)
+	ctx.Info().Msg("finished")
+	return nil
 }
 
 func main() {
