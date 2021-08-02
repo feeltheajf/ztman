@@ -4,7 +4,6 @@ import (
 	"os"
 
 	"github.com/fatih/color"
-	"github.com/manifoldco/promptui"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -27,7 +26,7 @@ func formatLevel(level interface{}) string {
 	if levelString, ok := level.(string); ok {
 		switch levelString {
 		case "trace":
-			return promptui.Styler(promptui.FGMagenta)("[T]")
+			return colorize("[T]", color.FgMagenta)
 		case "debug":
 			return colorize("[D]", color.FgCyan)
 		case "info":
@@ -35,7 +34,7 @@ func formatLevel(level interface{}) string {
 		case "warn":
 			return colorize("[W]", color.FgYellow)
 		case "error":
-			return promptui.Styler(promptui.FGRed)("[E]")
+			return colorize("[E]", color.FgRed)
 		case "fatal":
 			return colorize("[F]", color.FgRed, color.Bold)
 		case "panic":
