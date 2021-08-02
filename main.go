@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/user"
 	"regexp"
-	"runtime"
 	"strings"
 
 	"github.com/feeltheajf/piv-go/piv"
@@ -28,7 +27,6 @@ import (
 
 const (
 	datetimeFormat = "2006-01-02 15:04:05"
-	waitPromptExit = runtime.GOOS == "windows"
 
 	filePub    = "piv.pub"
 	filePubSSH = "piv-ssh.pub"
@@ -175,7 +173,7 @@ func wrap(command func(yk *piv.YubiKey) error) func(*cobra.Command, []string) {
 }
 
 func exit(code int) {
-	if waitPromptExit {
+	if config.Sht {
 		promptExit.Run()
 	}
 	os.Exit(code)

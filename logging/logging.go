@@ -1,13 +1,13 @@
 package logging
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/fatih/color"
-
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"github.com/feeltheajf/ztman/config"
 )
 
 // Setup initializes global logging subsystem
@@ -15,13 +15,9 @@ func Setup(level zerolog.Level) {
 	zerolog.SetGlobalLevel(level)
 	log.Logger = log.Output(
 		zerolog.ConsoleWriter{
-			Out:                 os.Stderr,
-			NoColor:             true,
-			PartsExclude:        []string{zerolog.TimestampFieldName},
-			FormatLevel:         formatLevel,
-			FormatFieldName:     formatFieldName,
-			FormatErrFieldName:  formatErrFieldName,
-			FormatErrFieldValue: formatErrFieldValue,
+			Out:         os.Stderr,
+			NoColor:     config.Sht,
+			FormatLevel: formatLevel,
 		},
 	)
 }
@@ -30,32 +26,27 @@ func formatLevel(level interface{}) string {
 	if levelString, ok := level.(string); ok {
 		switch levelString {
 		case "trace":
-			return color.MagentaString("[T]")
+			return colorize("[T]", color.FgMagenta)
 		case "debug":
-			return color.CyanString("[D]")
+			return colorize("[D]", color.FgCyan)
 		case "info":
-			return color.GreenString("[I]")
+			return colorize("[I]", color.FgGreen)
 		case "warn":
-			return color.YellowString("[W]")
+			return colorize("[W]", color.FgYellow)
 		case "error":
-			return color.RedString("[E]")
+			return colorize("[E]", color.FgRed)
 		case "fatal":
-			return color.New(color.FgRed, color.Bold).Sprint("[F]")
+			return colorize("[F]", color.FgRed, color.Bold)
 		case "panic":
-			return color.New(color.FgRed, color.Bold).Sprint("[P]")
+			return colorize("[P]", color.FgRed, color.Bold)
 		}
 	}
-	return color.New(color.Bold).Sprint("[?]")
+	return colorize("[?]", color.Bold)
 }
 
-func formatFieldName(i interface{}) string {
-	return color.CyanString(fmt.Sprintf("%s=", i))
-}
-
-func formatErrFieldName(i interface{}) string {
-	return color.RedString(fmt.Sprintf("%s=", i))
-}
-
-func formatErrFieldValue(i interface{}) string {
-	return color.RedString(fmt.Sprintf("%s", i))
+func colorize(s string, c ...color.Attribute) string {
+	if config.Sht {
+		return s
+	}
+	return color.New(c...).Sprint(s)
 }

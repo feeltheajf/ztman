@@ -4,10 +4,12 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"runtime"
 )
 
 const (
 	App = "ztman"
+	Sht = runtime.GOOS == "windows"
 
 	permissionsFile      = 0600
 	permissionsDirectory = 0700
