@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/fatih/color"
@@ -14,14 +15,18 @@ func Setup(level zerolog.Level) {
 	zerolog.SetGlobalLevel(level)
 	log.Logger = log.Output(
 		zerolog.ConsoleWriter{
-			Out:         os.Stderr,
-			FormatLevel: consoleFormatLevel,
+			Out:                 os.Stderr,
+			NoColor:             true,
+			PartsExclude:        []string{zerolog.TimestampFieldName},
+			FormatLevel:         formatLevel,
+			FormatFieldName:     formatFieldName,
+			FormatErrFieldName:  formatErrFieldName,
+			FormatErrFieldValue: formatErrFieldValue,
 		},
 	)
 }
 
-// consoleFormatLevel is a custom log formatter for prettier text logs
-func consoleFormatLevel(level interface{}) string {
+func formatLevel(level interface{}) string {
 	if levelString, ok := level.(string); ok {
 		switch levelString {
 		case "trace":
@@ -41,4 +46,16 @@ func consoleFormatLevel(level interface{}) string {
 		}
 	}
 	return color.New(color.Bold).Sprint("[?]")
+}
+
+func formatFieldName(i interface{}) string {
+	return color.CyanString(fmt.Sprintf("%s=", i))
+}
+
+func formatErrFieldName(i interface{}) string {
+	return color.RedString(fmt.Sprintf("%s=", i))
+}
+
+func formatErrFieldValue(i interface{}) string {
+	return color.RedString(fmt.Sprintf("%s", i))
 }
