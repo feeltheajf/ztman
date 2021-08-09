@@ -1,5 +1,5 @@
 APP = ztman
-IMG = $(APP)-builder
+IMG = $(APP)-xgo
 COV = coverage.out
 TAG = v$(shell cat VERSION)
 
@@ -7,16 +7,20 @@ TAG = v$(shell cat VERSION)
 dep:
 	go mod tidy && go mod vendor
 
-.PHONY: builder
-builder:
-	docker build -t $(IMG) .
-
 .PHONY: build
 build: dep
 	goreleaser build --snapshot --rm-dist
 
+.PHONY: build-linux
+build-linux: dep
+	./hack/build-linux.sh
+
+.PHONY: xgo
+xgo:
+	docker build -t $(IMG) -f Dockerfile.xgo .
+
 .PHONY: release
-release: dep
+release: dep build-linux
 	git tag -a $(TAG) -m "$(TAG) release"
 	git push origin $(TAG)
 	goreleaser release --rm-dist
