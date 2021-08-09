@@ -4,7 +4,7 @@ go 1.16
 
 require (
 	github.com/fatih/color v1.7.0
-	github.com/feeltheajf/piv-go v1.8.4
+	github.com/feeltheajf/piv-go v1.8.5
 	github.com/manifoldco/promptui v0.8.0
 	github.com/rs/zerolog v1.23.0
 	github.com/spf13/cobra v1.2.1

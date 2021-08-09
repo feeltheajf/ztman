@@ -324,6 +324,10 @@ func ykReset(tx *scTx, r io.Reader) error {
 	if _, err := tx.Transmit(cmd); err != nil {
 		return fmt.Errorf("reseting yubikey: %w", err)
 	}
+
+	if err := ykSetCardID(tx, DefaultManagementKey, &CardID{GUID: generateGUID()}); err != nil {
+		return fmt.Errorf("generating chuid: %w", err)
+	}
 	return nil
 }
 
