@@ -183,7 +183,7 @@ func wrap(command func(yk *piv.YubiKey) error) func(*cobra.Command, []string) {
 
 func exit(code int) {
 	if config.Sht && !flags.force {
-		promptExit.Run()
+		promptExit.Run() // #nosec G104
 	}
 	os.Exit(code)
 }

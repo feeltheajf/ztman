@@ -39,4 +39,4 @@ gosec:
 
 .PHONY: trufflehog
 trufflehog:
-	trufflehog3 .
+	trufflehog3

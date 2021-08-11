@@ -11,7 +11,7 @@ import (
 
 // ReadCertificate loads certificate from file
 func ReadCertificate(filename string) (*x509.Certificate, error) {
-	b, err := ioutil.ReadFile(filename)
+	b, err := ioutil.ReadFile(filename) // #nosec G304
 	if err != nil {
 		return nil, err
 	}

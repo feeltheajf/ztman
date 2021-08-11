@@ -1,0 +1,14 @@
+no_history: true
+
+exclude:
+  - message: Go lock files
+    paths:
+      - go.mod
+      - go.sum
+  - message: 3rd party dependencies
+    paths:
+      - vendor
+  - message: Build directories
+    paths:
+      - dist
+      - dist-linux
