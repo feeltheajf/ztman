@@ -440,6 +440,7 @@ func Import(yk *piv.YubiKey) (err error) {
 }
 
 func main() {
+	cobra.EnableCommandSorting = false
 	cobra.MousetrapHelpText = ""
 
 	cmd.CompletionOptions.DisableDefaultCmd = true
