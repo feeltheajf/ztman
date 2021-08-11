@@ -37,7 +37,7 @@ func WriteCertificateRequest(filename string, csr *x509.CertificateRequest) erro
 	if err != nil {
 		return err
 	}
-	return config.WriteFile(filename, raw)
+	return config.Write(filename, raw)
 }
 
 // MarshalCertificateRequest returns PEM encoding of certificate request

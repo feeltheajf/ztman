@@ -5,6 +5,8 @@ Lightweight alternative to [YubiKey Manager CLI](https://developers.yubico.com/y
 ## To Do
 
 - Sign macOS binaries, see https://github.com/mitchellh/gon
+- Autotests
+- Integration with ztca & ztunnel
 
 ## Installation
 

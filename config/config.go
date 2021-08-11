@@ -39,6 +39,6 @@ func Mkdir(dir string) error {
 	return os.MkdirAll(dir, permissionsDirectory)
 }
 
-func WriteFile(file string, data []byte) error {
+func Write(file string, data []byte) error {
 	return ioutil.WriteFile(file, data, permissionsFile)
 }
