@@ -15,9 +15,11 @@ github.com/lunixbochs/vtclean
 github.com/manifoldco/promptui
 github.com/manifoldco/promptui/list
 github.com/manifoldco/promptui/screenbuf
-# github.com/mattn/go-colorable v0.0.9
+# github.com/mattn/go-colorable v0.1.4
+## explicit
 github.com/mattn/go-colorable
-# github.com/mattn/go-isatty v0.0.4
+# github.com/mattn/go-isatty v0.0.10
+## explicit
 github.com/mattn/go-isatty
 # github.com/rs/zerolog v1.23.0
 ## explicit
@@ -30,7 +32,7 @@ github.com/rs/zerolog/log
 github.com/spf13/cobra
 # github.com/spf13/pflag v1.0.5
 github.com/spf13/pflag
-# golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
+# golang.org/x/crypto v0.0.0-20210314154223-e6e6c4f2bb5b
 ## explicit
 golang.org/x/crypto/blowfish
 golang.org/x/crypto/chacha20
@@ -46,3 +48,5 @@ golang.org/x/crypto/ssh/internal/bcrypt_pbkdf
 golang.org/x/sys/cpu
 golang.org/x/sys/internal/unsafeheader
 golang.org/x/sys/unix
+# gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15
+## explicit
