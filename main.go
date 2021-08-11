@@ -147,26 +147,33 @@ type meta struct {
 	touchPolicy piv.TouchPolicy
 }
 
+func open() (*piv.YubiKey, error) {
+	cards, err := piv.Cards()
+	if err != nil {
+		return nil, err
+	}
+
+	var yk *piv.YubiKey
+	for _, card := range cards {
+		if strings.Contains(strings.ToLower(card), "yubikey") {
+			if yk, err = piv.Open(card); err != nil {
+				return nil, err
+			}
+			break
+		}
+	}
+	if yk == nil {
+		return nil, errors.New("no YubiKey detected")
+	}
+
+	return yk, nil
+}
+
 func wrap(command func(yk *piv.YubiKey) error) func(*cobra.Command, []string) {
 	return func(*cobra.Command, []string) {
-		cards, err := piv.Cards()
+		yk, err := open()
 		if err != nil {
-			log.Error().Err(err).Msg("listing available smart cards")
-			exit(1)
-		}
-
-		var yk *piv.YubiKey
-		for _, card := range cards {
-			if strings.Contains(strings.ToLower(card), "yubikey") {
-				if yk, err = piv.Open(card); err != nil {
-					log.Error().Err(err).Msg("connecting to YubiKey")
-					exit(1)
-				}
-				break
-			}
-		}
-		if yk == nil {
-			log.Error().Msg("no YubiKey detected")
+			log.Error().Err(err).Msg("connecting to YubiKey")
 			exit(1)
 		}
 		defer yk.Close()
