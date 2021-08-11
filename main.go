@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
@@ -136,6 +137,7 @@ var (
 		pin  string
 		puk  string
 		slot string
+		cert string
 	}{}
 )
 
@@ -180,7 +182,7 @@ func wrap(command func(yk *piv.YubiKey) error) func(*cobra.Command, []string) {
 }
 
 func exit(code int) {
-	if config.Sht {
+	if config.Sht && !flags.force {
 		promptExit.Run()
 	}
 	os.Exit(code)
@@ -416,20 +418,39 @@ func Import(yk *piv.YubiKey) (err error) {
 	slot := meta.slot
 	ctx := log.With().Str("slot", slot.String()).Logger()
 
-	pathCrt := config.Path(slot.String(), fileCrt)
-	p := promptui.Select{
-		Label: "Import certificate from " + pathCrt,
-		Items: []string{"ok"},
+	if flags.cert == "" {
+		flags.cert = config.Path(slot.String(), fileCrt)
 	}
-	_, _, err = p.Run()
-	if err != nil {
-		return err
+	if !flags.force {
+		p := promptui.Select{
+			Label: "Import certificate from " + flags.cert,
+			Items: []string{"ok"},
+		}
+		_, _, err := p.Run()
+		if err != nil {
+			return err
+		}
 	}
 
-	ctx.Info().Str("path", pathCrt).Msg("importing certificate")
-	crt, err := pki.ReadCertificate(pathCrt)
+	ctx.Info().Str("path", flags.cert).Msg("importing certificate")
+	crt, err := pki.ReadCertificate(flags.cert)
 	if err != nil {
 		return err
+	}
+	crtPub, err := pki.MarshalPublicKey(crt.PublicKey)
+	if err != nil {
+		return err
+	}
+	att, err := yk.Attest(slot)
+	if err != nil {
+		return err
+	}
+	attPub, err := pki.MarshalPublicKey(att.PublicKey)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(crtPub, attPub) {
+		return errors.New("certificate issued for different key pair")
 	}
 	if err := yk.SetCertificate(mk, slot, crt); err != nil {
 		return err
@@ -446,7 +467,7 @@ func main() {
 	cmd.CompletionOptions.DisableDefaultCmd = true
 
 	cmd.PersistentFlags().BoolVarP(&flags.debug, "debug", "d", false, "debug mode")
-	cmd.PersistentFlags().BoolVarP(&flags.force, "force", "f", false, "confirm actions without prompting")
+	cmd.PersistentFlags().BoolVarP(&flags.force, "force", "f", false, "disable interactive prompts")
 
 	cmdReset.Flags().StringVar(&flags.pin, "pin", "", "PIV PIN")
 	cmdReset.Flags().StringVar(&flags.puk, "puk", "", "PIV PUK")
@@ -456,6 +477,7 @@ func main() {
 
 	cmdImport.Flags().StringVar(&flags.pin, "pin", "", "PIV PIN")
 	cmdImport.Flags().StringVarP(&flags.slot, "slot", "s", "", "PIV slot")
+	cmdImport.Flags().StringVarP(&flags.cert, "cert", "c", "", "path to certificate")
 
 	cmd.AddCommand(cmdInfo)
 	cmd.AddCommand(cmdReset)
