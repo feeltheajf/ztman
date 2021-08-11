@@ -1,8 +1,5 @@
 # github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
 github.com/chzyer/readline
-# github.com/fatih/color v1.7.0
-## explicit
-github.com/fatih/color
 # github.com/feeltheajf/piv-go v1.8.5
 ## explicit
 github.com/feeltheajf/piv-go/piv
