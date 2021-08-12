@@ -1,18 +1,16 @@
 package config
 
 import (
-	"io/ioutil"
 	"os"
 	"path"
 	"runtime"
+
+	"github.com/feeltheajf/ztman/fs"
 )
 
 const (
 	App = "ztman"
 	Sht = runtime.GOOS == "windows"
-
-	permissionsFile      = 0600
-	permissionsDirectory = 0700
 )
 
 var (
@@ -26,19 +24,11 @@ func init() {
 	}
 
 	root = path.Join(home, App)
-	if err := Mkdir(root); err != nil {
+	if err := fs.Mkdir(root); err != nil {
 		panic(err)
 	}
 }
 
 func Path(elem ...string) string {
 	return path.Join(append([]string{root}, elem...)...)
-}
-
-func Mkdir(dir string) error {
-	return os.MkdirAll(dir, permissionsDirectory)
-}
-
-func Write(file string, data []byte) error {
-	return ioutil.WriteFile(file, data, permissionsFile)
 }

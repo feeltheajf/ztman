@@ -4,50 +4,44 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/pem"
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/feeltheajf/ztman/config"
+	"github.com/feeltheajf/ztman/fs"
 )
 
 // WritePublicKey saves public key to file
 func WritePublicKey(filename string, key crypto.PublicKey) error {
-	b, err := MarshalPublicKey(key)
+	raw, err := MarshalPublicKey(key)
 	if err != nil {
 		return err
 	}
-	return config.Write(filename, b)
+	return fs.Write(filename, raw)
 }
 
 // MarshalPublicKey returns PEM encoding of key
-func MarshalPublicKey(key crypto.PublicKey) ([]byte, error) {
+func MarshalPublicKey(key crypto.PublicKey) (string, error) {
 	b, err := x509.MarshalPKIXPublicKey(key)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-
-	block := &pem.Block{
-		Type:  pemTypePublicKey,
-		Bytes: b,
-	}
-	return pem.EncodeToMemory(block), nil
+	return encode(PEMTypePublicKey, b), nil
 }
 
 // WritePublicKeySSH saves public key to file in OpenSSH format
 func WritePublicKeySSH(filename string, key crypto.PublicKey) error {
-	b, err := MarshalPublicKeySSH(key)
+	raw, err := MarshalPublicKeySSH(key)
 	if err != nil {
 		return err
 	}
-	return config.Write(filename, b)
+	return fs.Write(filename, raw)
 }
 
 // MarshalPublicKeySSH returns OpenSSH encoding of key
-func MarshalPublicKeySSH(key crypto.PublicKey) ([]byte, error) {
+func MarshalPublicKeySSH(key crypto.PublicKey) (string, error) {
 	pub, err := ssh.NewPublicKey(key)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return []byte(base64.StdEncoding.EncodeToString(pub.Marshal())), nil
+	return base64.StdEncoding.EncodeToString(pub.Marshal()), nil
 }

@@ -3,10 +3,8 @@ package pki
 import (
 	"crypto/rand"
 	"crypto/x509"
-	"encoding/pem"
-	"errors"
 
-	"github.com/feeltheajf/ztman/config"
+	"github.com/feeltheajf/ztman/fs"
 )
 
 // NewCertificateRequest creates new signed certificate request using the given key
@@ -15,18 +13,14 @@ func NewCertificateRequest(tpl *x509.CertificateRequest, priv interface{}) (*x50
 	if err != nil {
 		return nil, err
 	}
-	block := &pem.Block{
-		Type:  pemTypeCertificateRequest,
-		Bytes: b,
-	}
-	return UnmarshalCertificateRequest(pem.EncodeToMemory(block))
+	return UnmarshalCertificateRequest(encode(PEMTypeCertificateRequest, b))
 }
 
-// UnmarshalCertificateRequest parses certificate request from PEM-encoded bytes
-func UnmarshalCertificateRequest(raw []byte) (*x509.CertificateRequest, error) {
-	block, _ := pem.Decode(raw)
-	if block == nil {
-		return nil, errors.New("failed to parse certificate request: invalid PEM")
+// UnmarshalCertificateRequest parses certificate request from PEM-encoded string
+func UnmarshalCertificateRequest(raw string) (*x509.CertificateRequest, error) {
+	block, err := decode(raw)
+	if err != nil {
+		return nil, err
 	}
 	return x509.ParseCertificateRequest(block.Bytes)
 }
@@ -37,14 +31,10 @@ func WriteCertificateRequest(filename string, csr *x509.CertificateRequest) erro
 	if err != nil {
 		return err
 	}
-	return config.Write(filename, raw)
+	return fs.Write(filename, raw)
 }
 
 // MarshalCertificateRequest returns PEM encoding of certificate request
-func MarshalCertificateRequest(csr *x509.CertificateRequest) ([]byte, error) {
-	block := &pem.Block{
-		Type:  pemTypeCertificateRequest,
-		Bytes: csr.Raw,
-	}
-	return pem.EncodeToMemory(block), nil
+func MarshalCertificateRequest(csr *x509.CertificateRequest) (string, error) {
+	return encode(PEMTypeCertificateRequest, csr.Raw), nil
 }

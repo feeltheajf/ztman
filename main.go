@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
@@ -22,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/feeltheajf/ztman/config"
+	"github.com/feeltheajf/ztman/fs"
 	"github.com/feeltheajf/ztman/logging"
 	"github.com/feeltheajf/ztman/pki"
 )
@@ -326,7 +326,7 @@ func Attest(yk *piv.YubiKey) (err error) {
 	meta := slots[s]
 	slot := meta.slot
 	ctx := log.With().Str("slot", slot.String()).Logger()
-	if err := config.Mkdir(config.Path(s)); err != nil {
+	if err := fs.Mkdir(config.Path(s)); err != nil {
 		return err
 	}
 
@@ -456,7 +456,7 @@ func Import(yk *piv.YubiKey) (err error) {
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(crtPub, attPub) {
+	if crtPub != attPub {
 		return errors.New("certificate issued for different key pair")
 	}
 	if err := yk.SetCertificate(mk, slot, crt); err != nil {
