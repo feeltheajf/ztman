@@ -83,20 +83,20 @@ var (
 	cmd = &cobra.Command{
 		Use:     config.App,
 		Version: version,
-		Run: wrap(func(yk *piv.YubiKey) error {
+		Run: wrap(func() error {
 			_, cmd, err := promptCmd.Run()
 			if err != nil {
 				return err
 			}
 			switch cmd {
 			case "info":
-				return Info(yk)
+				return Info()
 			case "reset":
-				return Reset(yk)
+				return Reset()
 			case "attest":
-				return Attest(yk)
+				return Attest()
 			case "import":
-				return Import(yk)
+				return Import()
 			default:
 				return errors.New("unknown command")
 			}
@@ -150,14 +150,14 @@ type meta struct {
 func open() (*piv.YubiKey, error) {
 	cards, err := piv.Cards()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing available smart cards: %w", err)
 	}
 
 	var yk *piv.YubiKey
 	for _, card := range cards {
 		if strings.Contains(strings.ToLower(card), "yubikey") {
 			if yk, err = piv.Open(card); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("connecting to '%s': %w", card, err)
 			}
 			break
 		}
@@ -169,30 +169,22 @@ func open() (*piv.YubiKey, error) {
 	return yk, nil
 }
 
-func wrap(command func(yk *piv.YubiKey) error) func(*cobra.Command, []string) {
+func wrap(command func() error) func(*cobra.Command, []string) {
 	return func(*cobra.Command, []string) {
-		yk, err := open()
-		if err != nil {
-			log.Error().Err(err).Msg("connecting to YubiKey")
-			exit(1)
-		}
-		defer yk.Close()
-
-		switch err := command(yk); err {
+		code := 0
+		switch err := command(); err {
 		case nil, promptui.ErrInterrupt, promptui.ErrEOF:
-			exit(0)
+			break
 		default:
 			log.Error().Err(err).Msg("fatal")
-			exit(1)
+			code = 1
 		}
-	}
-}
 
-func exit(code int) {
-	if config.Sht && !flags.force {
-		promptExit.Run() // #nosec G104
+		if config.Sht && !flags.force {
+			promptExit.Run() // #nosec G104
+		}
+		os.Exit(code)
 	}
-	os.Exit(code)
 }
 
 func validatePassword(re *regexp.Regexp, defaults string) func(string) error {
@@ -207,7 +199,13 @@ func validatePassword(re *regexp.Regexp, defaults string) func(string) error {
 	}
 }
 
-func Info(yk *piv.YubiKey) (err error) {
+func Info() (err error) {
+	yk, err := open()
+	if err != nil {
+		return err
+	}
+	defer yk.Close()
+
 	v := yk.Version()
 	fmt.Printf("PIV version: %d.%d.%d\n", v.Major, v.Minor, v.Patch)
 
@@ -235,7 +233,7 @@ func Info(yk *piv.YubiKey) (err error) {
 	return nil
 }
 
-func Reset(yk *piv.YubiKey) (err error) {
+func Reset() (err error) {
 	if !flags.force {
 		_, choice, err := promptReset.Run()
 		if err != nil {
@@ -246,21 +244,12 @@ func Reset(yk *piv.YubiKey) (err error) {
 		}
 	}
 
-	log.Info().Msg("resetting YubiKey")
-	if err := yk.Reset(); err != nil {
-		return err
-	}
-
 	pin := flags.pin
 	if pin == "" || pin == piv.DefaultPIN {
 		pin, err = promptPIN.Run()
 		if err != nil {
 			return err
 		}
-	}
-	log.Info().Msg("setting PIN")
-	if err := yk.SetPIN(piv.DefaultPIN, pin); err != nil {
-		return err
 	}
 
 	puk := flags.puk
@@ -270,6 +259,23 @@ func Reset(yk *piv.YubiKey) (err error) {
 			return err
 		}
 	}
+
+	yk, err := open()
+	if err != nil {
+		return err
+	}
+	defer yk.Close()
+
+	log.Info().Msg("resetting YubiKey")
+	if err := yk.Reset(); err != nil {
+		return err
+	}
+
+	log.Info().Msg("setting PIN")
+	if err := yk.SetPIN(piv.DefaultPIN, pin); err != nil {
+		return err
+	}
+
 	log.Info().Msg("setting PUK")
 	if err := yk.SetPUK(piv.DefaultPUK, puk); err != nil {
 		return err
@@ -296,7 +302,7 @@ func Reset(yk *piv.YubiKey) (err error) {
 	return nil
 }
 
-func Attest(yk *piv.YubiKey) (err error) {
+func Attest() (err error) {
 	pin := flags.pin
 	if pin == "" || pin == piv.DefaultPIN {
 		pin, err = promptPIN.Run()
@@ -304,17 +310,6 @@ func Attest(yk *piv.YubiKey) (err error) {
 			return err
 		}
 	}
-
-	log.Info().Msg("getting management key")
-	m, err := yk.Metadata(pin)
-	if err != nil {
-		return err
-	}
-	if m.ManagementKey == nil {
-		return errors.New("management key not set")
-	}
-	mk := *m.ManagementKey
-	log.Debug().Str("mk", hex.EncodeToString(mk[:])).Msg("using")
 
 	s := flags.slot
 	if s == "" {
@@ -329,6 +324,23 @@ func Attest(yk *piv.YubiKey) (err error) {
 	if err := fs.Mkdir(config.Path(s)); err != nil {
 		return err
 	}
+
+	yk, err := open()
+	if err != nil {
+		return err
+	}
+	defer yk.Close()
+
+	log.Info().Msg("getting management key")
+	m, err := yk.Metadata(pin)
+	if err != nil {
+		return err
+	}
+	if m.ManagementKey == nil {
+		return errors.New("management key not set")
+	}
+	mk := *m.ManagementKey
+	log.Debug().Str("mk", hex.EncodeToString(mk[:])).Msg("using")
 
 	ctx.Info().Msg("generating private key")
 	key := piv.Key{
@@ -394,7 +406,7 @@ func Attest(yk *piv.YubiKey) (err error) {
 	return nil
 }
 
-func Import(yk *piv.YubiKey) (err error) {
+func Import() (err error) {
 	pin := flags.pin
 	if pin == "" || pin == piv.DefaultPIN {
 		pin, err = promptPIN.Run()
@@ -402,17 +414,6 @@ func Import(yk *piv.YubiKey) (err error) {
 			return err
 		}
 	}
-
-	log.Info().Msg("getting management key")
-	m, err := yk.Metadata(pin)
-	if err != nil {
-		return err
-	}
-	if m.ManagementKey == nil {
-		return errors.New("management key not set")
-	}
-	mk := *m.ManagementKey
-	log.Debug().Str("mk", hex.EncodeToString(mk[:])).Msg("using")
 
 	s := flags.slot
 	if s == "" {
@@ -438,6 +439,23 @@ func Import(yk *piv.YubiKey) (err error) {
 			return err
 		}
 	}
+
+	yk, err := open()
+	if err != nil {
+		return err
+	}
+	defer yk.Close()
+
+	log.Info().Msg("getting management key")
+	m, err := yk.Metadata(pin)
+	if err != nil {
+		return err
+	}
+	if m.ManagementKey == nil {
+		return errors.New("management key not set")
+	}
+	mk := *m.ManagementKey
+	log.Debug().Str("mk", hex.EncodeToString(mk[:])).Msg("using")
 
 	ctx.Info().Str("path", flags.cert).Msg("importing certificate")
 	crt, err := pki.ReadCertificate(flags.cert)
