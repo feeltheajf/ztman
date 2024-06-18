@@ -1,6 +1,6 @@
 module github.com/feeltheajf/ztman
 
-go 1.22
+go 1.21
 
 require (
 	github.com/feeltheajf/piv-go v1.8.6

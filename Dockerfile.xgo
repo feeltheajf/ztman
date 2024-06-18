@@ -1,4 +1,4 @@
-FROM karalabe/xgo-1.13.4
+FROM docker.elastic.co/beats-dev/golang-crossbuild:1.21.11-main
 
 RUN apt-get update -y \
     && apt-get install -y libpcsclite-dev

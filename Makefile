@@ -9,7 +9,7 @@ dep:
 
 .PHONY: build
 build: dep
-	goreleaser build --snapshot --rm-dist
+	goreleaser build --snapshot --clean
 
 .PHONY: build-linux
 build-linux: dep
@@ -23,7 +23,7 @@ xgo:
 release: dep build-linux
 	git tag -a $(TAG) -m "$(TAG) release"
 	git push origin $(TAG)
-	goreleaser release --rm-dist
+	goreleaser release --clean
 
 .PHONY: test
 test: unittest gosec trufflehog
