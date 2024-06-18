@@ -26,12 +26,16 @@ release: dep build-linux
 	goreleaser release --clean
 
 .PHONY: test
-test: unittest gosec trufflehog
+test: unittest govulncheck gosec trufflehog
 
 .PHONY: unittest
 unittest:
 	go test -v -race -coverprofile=$(COV) ./... \
 		&& go tool cover -func $(COV)
+
+.PHONY: govulncheck
+govulncheck:
+	govulncheck ./...
 
 .PHONY: gosec
 gosec:
