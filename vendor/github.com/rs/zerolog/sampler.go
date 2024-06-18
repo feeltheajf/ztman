@@ -38,7 +38,7 @@ func (s RandomSampler) Sample(lvl Level) bool {
 }
 
 // BasicSampler is a sampler that will send every Nth events, regardless of
-// there level.
+// their level.
 type BasicSampler struct {
 	N       uint32
 	counter uint32
@@ -84,7 +84,7 @@ func (s *BurstSampler) Sample(lvl Level) bool {
 }
 
 func (s *BurstSampler) inc() uint32 {
-	now := time.Now().UnixNano()
+	now := TimestampFunc().UnixNano()
 	resetAt := atomic.LoadInt64(&s.resetAt)
 	var c uint32
 	if now > resetAt {

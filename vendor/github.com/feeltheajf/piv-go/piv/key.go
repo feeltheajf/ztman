@@ -31,6 +31,8 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+
+	rsafork "github.com/feeltheajf/piv-go/third_party/rsa"
 )
 
 // errMismatchingAlgorithms is returned when a cryptographic operation
@@ -76,16 +78,47 @@ type Version struct {
 }
 
 // Formfactor enumerates the physical set of forms a key can take. USB-A vs.
-// USB-C and Keychain vs. Nano.
+// USB-C and Keychain vs. Nano (and FIPS variants for these).
 type Formfactor int
 
-// Formfactors recognized by this package.
+// The mapping between known Formfactor values and their descriptions.
+var formFactorStrings = map[Formfactor]string{
+	FormfactorUSBAKeychain:          "USB-A Keychain",
+	FormfactorUSBANano:              "USB-A Nano",
+	FormfactorUSBCKeychain:          "USB-C Keychain",
+	FormfactorUSBCNano:              "USB-C Nano",
+	FormfactorUSBCLightningKeychain: "USB-C/Lightning Keychain",
+
+	FormfactorUSBAKeychainFIPS:          "USB-A Keychain FIPS",
+	FormfactorUSBANanoFIPS:              "USB-A Nano FIPS",
+	FormfactorUSBCKeychainFIPS:          "USB-C Keychain FIPS",
+	FormfactorUSBCNanoFIPS:              "USB-C Nano FIPS",
+	FormfactorUSBCLightningKeychainFIPS: "USB-C/Lightning Keychain FIPS",
+}
+
+// String returns the human-readable description for the given form-factor
+// value, or a fallback value for any other, unknown form-factor.
+func (f Formfactor) String() string {
+	if s, ok := formFactorStrings[f]; ok {
+		return s
+	}
+	return fmt.Sprintf("unknown(0x%02x)", int(f))
+}
+
+// Formfactors recognized by this package. See the reference for more information:
+// https://developers.yubico.com/yubikey-manager/Config_Reference.html#_form_factor
 const (
-	FormfactorUSBAKeychain = iota + 1
-	FormfactorUSBANano
-	FormfactorUSBCKeychain
-	FormfactorUSBCNano
-	FormfactorUSBCLightningKeychain
+	FormfactorUSBAKeychain          = 0x1
+	FormfactorUSBANano              = 0x2
+	FormfactorUSBCKeychain          = 0x3
+	FormfactorUSBCNano              = 0x4
+	FormfactorUSBCLightningKeychain = 0x5
+
+	FormfactorUSBAKeychainFIPS          = 0x81
+	FormfactorUSBANanoFIPS              = 0x82
+	FormfactorUSBCKeychainFIPS          = 0x83
+	FormfactorUSBCNanoFIPS              = 0x84
+	FormfactorUSBCLightningKeychainFIPS = 0x85
 )
 
 // Prefix in the x509 Subject Common Name for YubiKey attestations
@@ -163,41 +196,35 @@ func (a *Attestation) addExt(e pkix.Extension) error {
 		if len(e.Value) != 1 {
 			return fmt.Errorf("expected 1 byte from formfactor, got: %d", len(e.Value))
 		}
-		switch e.Value[0] {
-		case 0x01:
-			a.Formfactor = FormfactorUSBAKeychain
-		case 0x02:
-			a.Formfactor = FormfactorUSBANano
-		case 0x03:
-			a.Formfactor = FormfactorUSBCKeychain
-		case 0x04:
-			a.Formfactor = FormfactorUSBCNano
-		case 0x05:
-			a.Formfactor = FormfactorUSBCLightningKeychain
-		default:
-			return fmt.Errorf("unrecognized formfactor: 0x%x", e.Value[0])
-		}
+		a.Formfactor = Formfactor(e.Value[0])
 	}
 	return nil
-}
-
-func verifySignature(parent, c *x509.Certificate) error {
-	return parent.CheckSignature(c.SignatureAlgorithm, c.RawTBSCertificate, c.Signature)
 }
 
 // Verify proves that a key was generated on a YubiKey. It ensures the slot and
 // YubiKey certificate chains up to the Yubico CA, parsing additional information
 // out of the slot certificate, such as the touch and PIN policies of a key.
 func Verify(attestationCert, slotCert *x509.Certificate) (*Attestation, error) {
-	var v verifier
+	var v Verifier
 	return v.Verify(attestationCert, slotCert)
 }
 
-type verifier struct {
+// Verifier allows specifying options when verifying attestations produced by
+// YubiKeys.
+type Verifier struct {
+	// Root certificates to use to validate challenges. If nil, this defaults to Yubico's
+	// CA bundle.
+	//
+	// https://developers.yubico.com/PIV/Introduction/PIV_attestation.html
+	// https://developers.yubico.com/PIV/Introduction/piv-attestation-ca.pem
+	// https://developers.yubico.com/U2F/yubico-u2f-ca-certs.txt
 	Roots *x509.CertPool
 }
 
-func (v *verifier) Verify(attestationCert, slotCert *x509.Certificate) (*Attestation, error) {
+// Verify proves that a key was generated on a YubiKey.
+//
+// As opposed to the package level [Verify], it uses any options enabled on the [Verifier].
+func (v *Verifier) Verify(attestationCert, slotCert *x509.Certificate) (*Attestation, error) {
 	o := x509.VerifyOptions{KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}}
 	o.Roots = v.Roots
 	if o.Roots == nil {
@@ -214,7 +241,7 @@ func (v *verifier) Verify(attestationCert, slotCert *x509.Certificate) (*Attesta
 	// This isn't valid as per https://datatracker.ietf.org/doc/html/rfc5280#section-4.2.1.9
 	// (fourth paragraph) and thus makes x509.go validation fail.
 	// Work around this by setting this constraint here.
-	if attestationCert.BasicConstraintsValid == false {
+	if !attestationCert.BasicConstraintsValid {
 		attestationCert.BasicConstraintsValid = true
 		attestationCert.IsCA = true
 	}
@@ -388,11 +415,11 @@ var retiredKeyManagementSlots = map[uint32]Slot{
 // RetiredKeyManagementSlot provides access to "retired" slots. Slots meant for old Key Management
 // keys that have been rotated. YubiKeys 4 and later support values between 0x82 and 0x95 (inclusive).
 //
-//     slot, ok := RetiredKeyManagementSlot(0x82)
-//     if !ok {
-//         // unrecognized slot
-//     }
-//     pub, err := yk.GenerateKey(managementKey, slot, key)
+//	slot, ok := RetiredKeyManagementSlot(0x82)
+//	if !ok {
+//	    // unrecognized slot
+//	}
+//	pub, err := yk.GenerateKey(managementKey, slot, key)
 //
 // https://developers.yubico.com/PIV/Introduction/Certificate_slots.html#_slot_82_95_retired_key_management
 func RetiredKeyManagementSlot(key uint32) (Slot, bool) {
@@ -449,6 +476,16 @@ const (
 	TouchPolicyCached
 )
 
+// Origin represents whether a key was generated on the hardware, or has been
+// imported into it.
+type Origin int
+
+// Origins supported by this package.
+const (
+	OriginGenerated Origin = iota + 1
+	OriginImported
+)
+
 const (
 	tagPINPolicy   = 0xaa
 	tagTouchPolicy = 0xab
@@ -460,10 +497,32 @@ var pinPolicyMap = map[PINPolicy]byte{
 	PINPolicyAlways: 0x03,
 }
 
+var pinPolicyMapInv = map[byte]PINPolicy{
+	0x01: PINPolicyNever,
+	0x02: PINPolicyOnce,
+	0x03: PINPolicyAlways,
+}
+
 var touchPolicyMap = map[TouchPolicy]byte{
 	TouchPolicyNever:  0x01,
 	TouchPolicyAlways: 0x02,
 	TouchPolicyCached: 0x03,
+}
+
+var touchPolicyMapInv = map[byte]TouchPolicy{
+	0x01: TouchPolicyNever,
+	0x02: TouchPolicyAlways,
+	0x03: TouchPolicyCached,
+}
+
+var originMap = map[Origin]byte{
+	OriginGenerated: 0x01,
+	OriginImported:  0x02,
+}
+
+var originMapInv = map[byte]Origin{
+	0x01: OriginGenerated,
+	0x02: OriginImported,
 }
 
 var algorithmsMap = map[Algorithm]byte{
@@ -472,6 +531,14 @@ var algorithmsMap = map[Algorithm]byte{
 	AlgorithmEd25519: algEd25519,
 	AlgorithmRSA1024: algRSA1024,
 	AlgorithmRSA2048: algRSA2048,
+}
+
+var algorithmsMapInv = map[byte]Algorithm{
+	algECCP256: AlgorithmEC256,
+	algECCP384: AlgorithmEC384,
+	algEd25519: AlgorithmEd25519,
+	algRSA1024: AlgorithmRSA1024,
+	algRSA2048: AlgorithmRSA2048,
 }
 
 // AttestationCertificate returns the YubiKey's attestation certificate, which
@@ -525,6 +592,92 @@ func ykAttest(tx *scTx, slot Slot) (*x509.Certificate, error) {
 		return nil, fmt.Errorf("parsing certificate: %v", err)
 	}
 	return cert, nil
+}
+
+// KeyInfo holds unprotected metadata about a key slot.
+type KeyInfo struct {
+	Algorithm   Algorithm
+	PINPolicy   PINPolicy
+	TouchPolicy TouchPolicy
+	Origin      Origin
+	PublicKey   crypto.PublicKey
+}
+
+func (ki *KeyInfo) unmarshal(b []byte) error {
+	for len(b) > 0 {
+		var v asn1.RawValue
+		rest, err := asn1.Unmarshal(b, &v)
+		if err != nil {
+			return err
+		}
+		b = rest
+		if v.Class != 0 || v.IsCompound {
+			continue
+		}
+		var ok bool
+		switch v.Tag {
+		case 1:
+			if len(v.Bytes) != 1 {
+				return errors.New("invalid algorithm in response")
+			}
+			if ki.Algorithm, ok = algorithmsMapInv[v.Bytes[0]]; !ok {
+				return errors.New("unknown algorithm in response")
+			}
+		case 2:
+			if len(v.Bytes) != 2 {
+				return errors.New("invalid policy in response")
+			}
+			if ki.PINPolicy, ok = pinPolicyMapInv[v.Bytes[0]]; !ok {
+				return errors.New("unknown PIN policy in response")
+			}
+			if ki.TouchPolicy, ok = touchPolicyMapInv[v.Bytes[1]]; !ok {
+				return errors.New("unknown touch policy in response")
+			}
+		case 3:
+			if len(v.Bytes) != 1 {
+				return errors.New("invalid origin in response")
+			}
+			if ki.Origin, ok = originMapInv[v.Bytes[0]]; !ok {
+				return errors.New("unknown origin in response")
+			}
+		case 4:
+			ki.PublicKey, err = decodePublic(v.Bytes, ki.Algorithm)
+			if err != nil {
+				return fmt.Errorf("parse public key: %w", err)
+			}
+		default:
+			// TODO: According to the Yubico website, we get two more fields,
+			// if we pass 0x80 or 0x81 as slots:
+			//     1. Default value (for PIN/PUK and management key): Whether the
+			//        default value is used.
+			//     2. Retries (for PIN/PUK): The number of retries remaining
+			// However, it seems the reference implementation does not expect
+			// these and can not parse them out:
+			// https://github.com/Yubico/yubico-piv-tool/blob/yubico-piv-tool-2.3.1/lib/util.c#L1529
+			// For now, we just ignore them.
+		}
+	}
+	return nil
+}
+
+// KeyInfo returns public information about the given key slot. It is only
+// supported by YubiKeys with a version >= 5.3.0.
+func (yk *YubiKey) KeyInfo(slot Slot) (KeyInfo, error) {
+	// https://developers.yubico.com/PIV/Introduction/Yubico_extensions.html#_get_metadata
+	cmd := apdu{
+		instruction: insGetMetadata,
+		param1:      0x00,
+		param2:      byte(slot.Key),
+	}
+	resp, err := yk.tx.Transmit(cmd)
+	if err != nil {
+		return KeyInfo{}, fmt.Errorf("command failed: %w", err)
+	}
+	var ki KeyInfo
+	if err := ki.unmarshal(resp); err != nil {
+		return KeyInfo{}, err
+	}
+	return ki, nil
 }
 
 // Certificate returns the certifiate object stored in a given slot.
@@ -658,7 +811,6 @@ func ykGenerateKey(tx *scTx, slot Slot, o Key) (crypto.PublicKey, error) {
 	alg, ok := algorithmsMap[o.Algorithm]
 	if !ok {
 		return nil, fmt.Errorf("unsupported algorithm")
-
 	}
 	tp, ok := touchPolicyMap[o.TouchPolicy]
 	if !ok {
@@ -685,10 +837,20 @@ func ykGenerateKey(tx *scTx, slot Slot, o Key) (crypto.PublicKey, error) {
 		return nil, fmt.Errorf("command failed: %w", err)
 	}
 
+	// https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-73-4.pdf#page=95
+	obj, _, err := unmarshalASN1(resp, 1, 0x49)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal response: %v", err)
+	}
+
+	return decodePublic(obj, o.Algorithm)
+}
+
+func decodePublic(b []byte, alg Algorithm) (crypto.PublicKey, error) {
 	var curve elliptic.Curve
-	switch o.Algorithm {
+	switch alg {
 	case AlgorithmRSA1024, AlgorithmRSA2048:
-		pub, err := decodeRSAPublic(resp)
+		pub, err := decodeRSAPublic(b)
 		if err != nil {
 			return nil, fmt.Errorf("decoding rsa public key: %v", err)
 		}
@@ -698,7 +860,7 @@ func ykGenerateKey(tx *scTx, slot Slot, o Key) (crypto.PublicKey, error) {
 	case AlgorithmEC384:
 		curve = elliptic.P384()
 	case AlgorithmEd25519:
-		pub, err := decodeEd25519Public(resp)
+		pub, err := decodeEd25519Public(b)
 		if err != nil {
 			return nil, fmt.Errorf("decoding ed25519 public key: %v", err)
 		}
@@ -706,7 +868,7 @@ func ykGenerateKey(tx *scTx, slot Slot, o Key) (crypto.PublicKey, error) {
 	default:
 		return nil, fmt.Errorf("unsupported algorithm")
 	}
-	pub, err := decodeECPublic(resp, curve)
+	pub, err := decodeECPublic(b, curve)
 	if err != nil {
 		return nil, fmt.Errorf("decoding ec public key: %v", err)
 	}
@@ -730,14 +892,6 @@ type KeyAuth struct {
 	// This field is required on older (<4.3.0) YubiKeys when using PINPrompt,
 	// as well as for keys imported to the card.
 	PINPolicy PINPolicy
-}
-
-func isAuthErr(err error) bool {
-	var e *apduErr
-	if !errors.As(err, &e) {
-		return false
-	}
-	return e.sw1 == 0x69 && e.sw2 == 0x82 // "security status not satisfied"
 }
 
 func (k KeyAuth) authTx(yk *YubiKey, pp PINPolicy) error {
@@ -775,6 +929,13 @@ func (k KeyAuth) do(yk *YubiKey, pp PINPolicy, f func(tx *scTx) ([]byte, error))
 }
 
 func pinPolicy(yk *YubiKey, slot Slot) (PINPolicy, error) {
+	if supportsVersion(yk.Version(), 5, 3, 0) {
+		info, err := yk.KeyInfo(slot)
+		if err != nil {
+			return 0, fmt.Errorf("get key info: %v", err)
+		}
+		return info.PINPolicy, nil
+	}
 	cert, err := yk.Attest(slot)
 	if err != nil {
 		var e *apduErr
@@ -804,12 +965,11 @@ func pinPolicy(yk *YubiKey, slot Slot) (PINPolicy, error) {
 // If the public key hasn't been stored externally, it can be provided by
 // fetching the slot's attestation certificate:
 //
-//		cert, err := yk.Attest(slot)
-//		if err != nil {
-//			// ...
-//		}
-//		priv, err := yk.PrivateKey(slot, cert.PublicKey, auth)
-//
+//	cert, err := yk.Attest(slot)
+//	if err != nil {
+//		// ...
+//	}
+//	priv, err := yk.PrivateKey(slot, cert.PublicKey, auth)
 func (yk *YubiKey) PrivateKey(slot Slot, public crypto.PublicKey, auth KeyAuth) (crypto.PrivateKey, error) {
 	pp := PINPolicyNever
 	if _, ok := pinPolicyMap[auth.PINPolicy]; ok {
@@ -927,7 +1087,6 @@ func ykImportKey(tx *scTx, tags []byte, slot Slot, o Key) error {
 	alg, ok := algorithmsMap[o.Algorithm]
 	if !ok {
 		return fmt.Errorf("unsupported algorithm")
-
 	}
 	tp, ok := touchPolicyMap[o.TouchPolicy]
 	if !ok {
@@ -1069,7 +1228,7 @@ func (k *keyRSA) Public() crypto.PublicKey {
 
 func (k *keyRSA) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	return k.auth.do(k.yk, k.pp, func(tx *scTx) ([]byte, error) {
-		return ykSignRSA(tx, k.slot, k.pub, digest, opts)
+		return ykSignRSA(tx, rand, k.slot, k.pub, digest, opts)
 	})
 }
 
@@ -1164,11 +1323,7 @@ func unmarshalASN1(b []byte, class, tag int) (obj, rest []byte, err error) {
 
 func decodeECPublic(b []byte, curve elliptic.Curve) (*ecdsa.PublicKey, error) {
 	// https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-73-4.pdf#page=95
-	r, _, err := unmarshalASN1(b, 1, 0x49)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal response: %v", err)
-	}
-	p, _, err := unmarshalASN1(r, 2, 0x06)
+	p, _, err := unmarshalASN1(b, 2, 0x06)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal points: %v", err)
 	}
@@ -1194,11 +1349,7 @@ func decodeECPublic(b []byte, curve elliptic.Curve) (*ecdsa.PublicKey, error) {
 func decodeEd25519Public(b []byte) (ed25519.PublicKey, error) {
 	// Adaptation of
 	// https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-73-4.pdf#page=95
-	r, _, err := unmarshalASN1(b, 1, 0x49)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal response: %v", err)
-	}
-	p, _, err := unmarshalASN1(r, 2, 0x06)
+	p, _, err := unmarshalASN1(b, 2, 0x06)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal points: %v", err)
 	}
@@ -1210,11 +1361,7 @@ func decodeEd25519Public(b []byte) (ed25519.PublicKey, error) {
 
 func decodeRSAPublic(b []byte) (*rsa.PublicKey, error) {
 	// https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-73-4.pdf#page=95
-	r, _, err := unmarshalASN1(b, 1, 0x49)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal response: %v", err)
-	}
-	mod, r, err := unmarshalASN1(r, 2, 0x01)
+	mod, r, err := unmarshalASN1(b, 2, 0x01)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal modulus: %v", err)
 	}
@@ -1282,43 +1429,54 @@ func ykDecryptRSA(tx *scTx, slot Slot, pub *rsa.PublicKey, data []byte) ([]byte,
 // PKCS#1 v15 is largely informed by the standard library
 // https://github.com/golang/go/blob/go1.13.5/src/crypto/rsa/pkcs1v15.go
 
-func ykSignRSA(tx *scTx, slot Slot, pub *rsa.PublicKey, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	if _, ok := opts.(*rsa.PSSOptions); ok {
-		return nil, fmt.Errorf("rsassa-pss signatures not supported")
+func ykSignRSA(tx *scTx, rand io.Reader, slot Slot, pub *rsa.PublicKey, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	hash := opts.HashFunc()
+	if hash.Size() != len(digest) {
+		return nil, fmt.Errorf("input must be a hashed message")
 	}
 
 	alg, err := rsaAlg(pub)
 	if err != nil {
 		return nil, err
 	}
-	hash := opts.HashFunc()
-	if hash.Size() != len(digest) {
-		return nil, fmt.Errorf("input must be a hashed message")
-	}
-	prefix, ok := hashPrefixes[hash]
-	if !ok {
-		return nil, fmt.Errorf("unsupported hash algorithm: crypto.Hash(%d)", hash)
-	}
 
-	// https://tools.ietf.org/pdf/rfc2313.pdf#page=9
-	d := make([]byte, len(prefix)+len(digest))
-	copy(d[:len(prefix)], prefix)
-	copy(d[len(prefix):], digest)
+	var data []byte
+	if o, ok := opts.(*rsa.PSSOptions); ok {
+		salt, err := rsafork.NewSalt(rand, pub, hash, o)
+		if err != nil {
+			return nil, err
+		}
+		em, err := rsafork.EMSAPSSEncode(digest, pub, salt, hash.New())
+		if err != nil {
+			return nil, err
+		}
+		data = em
+	} else {
+		prefix, ok := hashPrefixes[hash]
+		if !ok {
+			return nil, fmt.Errorf("unsupported hash algorithm: crypto.Hash(%d)", hash)
+		}
 
-	paddingLen := pub.Size() - 3 - len(d)
-	if paddingLen < 0 {
-		return nil, fmt.Errorf("message too large")
+		// https://tools.ietf.org/pdf/rfc2313.pdf#page=9
+		d := make([]byte, len(prefix)+len(digest))
+		copy(d[:len(prefix)], prefix)
+		copy(d[len(prefix):], digest)
+
+		paddingLen := pub.Size() - 3 - len(d)
+		if paddingLen < 0 {
+			return nil, fmt.Errorf("message too large")
+		}
+
+		padding := make([]byte, paddingLen)
+		for i := range padding {
+			padding[i] = 0xff
+		}
+
+		// https://tools.ietf.org/pdf/rfc2313.pdf#page=9
+		data = append([]byte{0x00, 0x01}, padding...)
+		data = append(data, 0x00)
+		data = append(data, d...)
 	}
-
-	padding := make([]byte, paddingLen)
-	for i := range padding {
-		padding[i] = 0xff
-	}
-
-	// https://tools.ietf.org/pdf/rfc2313.pdf#page=9
-	data := append([]byte{0x00, 0x01}, padding...)
-	data = append(data, 0x00)
-	data = append(data, d...)
 
 	// https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-73-4.pdf#page=117
 	cmd := apdu{

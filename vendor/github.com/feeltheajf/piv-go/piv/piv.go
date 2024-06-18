@@ -93,6 +93,7 @@ const (
 	insSetPINRetries = 0xfa
 	insAttest        = 0xf9
 	insGetSerial     = 0xf8
+	insGetMetadata   = 0xf7
 )
 
 // YubiKey is an exclusive open connection to a YubiKey smart card. While open,
@@ -142,7 +143,7 @@ type client struct {
 func (c *client) Cards() ([]string, error) {
 	ctx, err := newSCContext()
 	if err != nil {
-		return nil, fmt.Errorf("connecting to pscs: %w", err)
+		return nil, fmt.Errorf("connecting to pcsc: %w", err)
 	}
 	defer ctx.Close()
 	return ctx.ListReaders()
@@ -209,22 +210,28 @@ func encodePIN(pin string) ([]byte, error) {
 	if len(data) > 8 {
 		return nil, fmt.Errorf("pin longer than 8 bytes")
 	}
+
 	// apply padding
+	// 2.4 Security Architecture
+	// 2.4.3 Authentication of an Individual
+	// https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-73-4.pdf#page=88
 	for i := len(data); i < 8; i++ {
 		data = append(data, 0xff)
 	}
 	return data, nil
 }
 
-// authPIN attempts to authenticate against the card with the provided PIN.
-// The PIN is required to use and modify certain slots.
+// VerifyPIN attempts to authenticate against the card with the provided PIN.
+//
+// PIN authentication for other operations are handled separately, and VerifyPIN
+// does not need to be called before those methods.
 //
 // After a specific number of authentication attemps with an invalid PIN,
 // usually 3, the PIN will become block and refuse further attempts. At that
 // point the PUK must be used to unblock the PIN.
 //
 // Use DefaultPIN if the PIN hasn't been set.
-func (yk *YubiKey) authPIN(pin string) error {
+func (yk *YubiKey) VerifyPIN(pin string) error {
 	return ykLogin(yk.tx, pin)
 }
 
@@ -234,7 +241,10 @@ func ykLogin(tx *scTx, pin string) error {
 		return err
 	}
 
+	// 3.2 PIV Card Application Card Commands for Authentication
+	// 3.2.1 VERIFY Card Command
 	// https://csrc.nist.gov/CSRC/media/Publications/sp/800-73/4/archive/2015-05-29/documents/sp800_73-4_pt2_draft.pdf#page=20
+	// https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-73-4.pdf#page=86
 	cmd := apdu{instruction: insVerify, param2: 0x80, data: data}
 	if _, err := tx.Transmit(cmd); err != nil {
 		return fmt.Errorf("verify pin: %w", err)
@@ -406,12 +416,12 @@ func ykAuthenticate(tx *scTx, key [24]byte, rand io.Reader) error {
 	response := make([]byte, 8)
 	block.Encrypt(response, challenge)
 
-	data := append([]byte{
+	data := []byte{
 		0x7c, // Dynamic Authentication Template tag
 		20,   // 2+8+2+8
 		0x80, // 'Witness'
 		0x08, // Tag length
-	})
+	}
 	data = append(data, cardResponse...)
 	data = append(data,
 		0x81, // 'Challenge'
@@ -451,15 +461,13 @@ func ykAuthenticate(tx *scTx, key [24]byte, rand io.Reader) error {
 // are triple-des keys, however padding isn't verified. To generate a new key,
 // generate 24 random bytes.
 //
-//		var newKey [24]byte
-//		if _, err := io.ReadFull(rand.Reader, newKey[:]); err != nil {
-//			// ...
-//		}
-//		if err := yk.SetManagementKey(piv.DefaultManagementKey, newKey); err != nil {
-//			// ...
-//		}
-//
-//
+//	var newKey [24]byte
+//	if _, err := io.ReadFull(rand.Reader, newKey[:]); err != nil {
+//		// ...
+//	}
+//	if err := yk.SetManagementKey(piv.DefaultManagementKey, newKey); err != nil {
+//		// ...
+//	}
 func (yk *YubiKey) SetManagementKey(oldKey, newKey [24]byte) error {
 	if err := ykAuthenticate(yk.tx, oldKey, yk.rand); err != nil {
 		return fmt.Errorf("authenticating with old key: %w", err)
@@ -495,17 +503,16 @@ func ykSetManagementKey(tx *scTx, key [24]byte, touch bool) error {
 //
 // To generate a new PIN, use the crypto/rand package.
 //
-//		// Generate a 6 character PIN.
-//		newPINInt, err := rand.Int(rand.Reader, bit.NewInt(1_000_000))
-//		if err != nil {
-//			// ...
-//		}
-//		// Format with leading zeros.
-//		newPIN := fmt.Sprintf("%06d", newPINInt)
-//		if err := yk.SetPIN(piv.DefaultPIN, newPIN); err != nil {
-//			// ...
-//		}
-//
+//	// Generate a 6 character PIN.
+//	newPINInt, err := rand.Int(rand.Reader, bit.NewInt(1_000_000))
+//	if err != nil {
+//		// ...
+//	}
+//	// Format with leading zeros.
+//	newPIN := fmt.Sprintf("%06d", newPINInt)
+//	if err := yk.SetPIN(piv.DefaultPIN, newPIN); err != nil {
+//		// ...
+//	}
 func (yk *YubiKey) SetPIN(oldPIN, newPIN string) error {
 	return ykChangePIN(yk.tx, oldPIN, newPIN)
 }
@@ -556,17 +563,16 @@ func ykUnblockPIN(tx *scTx, puk, newPIN string) error {
 //
 // To generate a new PUK, use the crypto/rand package.
 //
-//		// Generate a 8 character PUK.
-//		newPUKInt, err := rand.Int(rand.Reader, bit.NewInt(100_000_000))
-//		if err != nil {
-//			// ...
-//		}
-//		// Format with leading zeros.
-//		newPUK := fmt.Sprintf("%08d", newPUKInt)
-//		if err := yk.SetPIN(piv.DefaultPUK, newPUK); err != nil {
-//			// ...
-//		}
-//
+//	// Generate a 8 character PUK.
+//	newPUKInt, err := rand.Int(rand.Reader, big.NewInt(100_000_000))
+//	if err != nil {
+//		// ...
+//	}
+//	// Format with leading zeros.
+//	newPUK := fmt.Sprintf("%08d", newPUKInt)
+//	if err := yk.SetPUK(piv.DefaultPUK, newPUK); err != nil {
+//		// ...
+//	}
 func (yk *YubiKey) SetPUK(oldPUK, newPUK string) error {
 	return ykChangePUK(yk.tx, oldPUK, newPUK)
 }
@@ -634,47 +640,6 @@ func ykSerial(tx *scTx, v *version) (uint32, error) {
 		return 0, fmt.Errorf("expected 4 byte serial number, got %d", n)
 	}
 	return binary.BigEndian.Uint32(resp), nil
-}
-
-// ykChangeManagementKey sets the Management Key to the new key provided. The
-// user must have authenticated with the existing key first.
-func ykChangeManagementKey(tx *scTx, key [24]byte) error {
-	cmd := apdu{
-		instruction: insSetMGMKey,
-		param1:      0xff,
-		param2:      0xff, // TODO: support touch policy
-		data: append([]byte{
-			alg3DES, keyCardManagement, 24,
-		}, key[:]...),
-	}
-	if _, err := tx.Transmit(cmd); err != nil {
-		return fmt.Errorf("command failed: %w", err)
-	}
-	return nil
-}
-
-func unmarshalDERField(b []byte, tag uint64) (obj []byte, err error) {
-	var prefix []byte
-	for tag > 0 {
-		prefix = append(prefix, byte(tag))
-		tag = tag >> 8
-	}
-	for i, j := 0, len(prefix)-1; i < j; i, j = i+1, j-1 {
-		prefix[i], prefix[j] = prefix[j], prefix[i]
-	}
-
-	hasPrefix := bytes.HasPrefix(b, prefix)
-	for len(b) > 0 {
-		var v asn1.RawValue
-		b, err = asn1.Unmarshal(b, &v)
-		if err != nil {
-			return nil, err
-		}
-		if hasPrefix {
-			return v.Bytes, nil
-		}
-	}
-	return nil, fmt.Errorf("no der value with tag 0x%x", prefix)
 }
 
 // Metadata returns protected data stored on the card. This can be used to
@@ -784,9 +749,7 @@ func (m *Metadata) unmarshal(b []byte) error {
 			return fmt.Errorf("invalid management key length: %d", len(v.Bytes))
 		}
 		var key [24]byte
-		for i := 0; i < len(v.Bytes); i++ {
-			key[i] = v.Bytes[i]
-		}
+		copy(key[:], v.Bytes)
 		m.ManagementKey = &key
 	}
 	return nil
@@ -1000,4 +963,14 @@ func generateGUID() [16]byte {
 		panic(err)
 	}
 	return guid
+}
+
+func supportsVersion(v Version, major, minor, patch int) bool {
+	if v.Major != major {
+		return v.Major > major
+	}
+	if v.Minor != minor {
+		return v.Minor > minor
+	}
+	return v.Patch >= patch
 }
