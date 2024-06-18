@@ -1,7 +1,6 @@
 package fs
 
 import (
-	"io/ioutil"
 	"os"
 )
 
@@ -10,18 +9,18 @@ const (
 	permissionsDirectory = 0700
 )
 
-// Read is a convenience wrapper around `ioutil.ReadFile`
+// Read is a convenience wrapper around `os.ReadFile`
 func Read(filename string) (string, error) {
-	b, err := ioutil.ReadFile(filename) // #nosec: G304
+	b, err := os.ReadFile(filename) // #nosec: G304
 	if err != nil {
 		return "", err
 	}
 	return string(b), nil
 }
 
-// Write is a convenience wrapper around `ioutil.WriteFile`
+// Write is a convenience wrapper around `os.WriteFile`
 func Write(filename string, data string) error {
-	return ioutil.WriteFile(filename, []byte(data), permissionsFile)
+	return os.WriteFile(filename, []byte(data), permissionsFile)
 }
 
 // Mkdir is a convenience wrapper around `os.MkdirAll`

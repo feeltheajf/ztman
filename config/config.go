@@ -22,7 +22,6 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-
 	root = path.Join(home, App)
 	if err := fs.Mkdir(root); err != nil {
 		panic(err)
