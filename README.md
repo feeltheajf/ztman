@@ -57,11 +57,11 @@ ztman reset --pin $PIN --puk $PUK
 ```sh
 # will generate the following files
 #
-# piv-attestation-intermediate.crt  intermediate attestation certificate
-# piv-attestation.crt               attestation certificate
-# piv-ssh.pub                       public key in OpenSSH format
-# piv.pub                           public key
-# piv.csr                           certificate signing request
+# piv-att-intermediate.crt  intermediate attestation certificate
+# piv-att.crt               attestation certificate
+# piv-ssh.pub               public key in OpenSSH format
+# piv.pub                   public key
+# piv.csr                   certificate signing request
 
 ztman attest --pin $PIN --slot 9a
 ```
@@ -78,7 +78,7 @@ If you need to configure another slot, repeat steps 2-4 accordingly.
 
 If a certificate has expired, it is safer to follow steps 3-4 without re-generating the key pair, which might cause troubles e.g. in cases when the same slot is used for making SSH connections.
 
-Finally, you can get current status of the PIV application by running
+Finally, you can get the current status of the PIV application by running
 
 ```sh
 ztman info
