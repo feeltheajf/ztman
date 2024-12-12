@@ -8,7 +8,7 @@ require (
 	github.com/rs/zerolog v1.33.0
 	github.com/spf13/cobra v1.8.1
 	github.com/trustelem/zxcvbn v1.0.1
-	golang.org/x/crypto v0.24.0
+	golang.org/x/crypto v0.31.0
 )
 
 require (
@@ -23,5 +23,5 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stretchr/testify v1.7.0 // indirect
 	github.com/test-go/testify v1.1.4 // indirect
-	golang.org/x/sys v0.21.0 // indirect
+	golang.org/x/sys v0.28.0 // indirect
 )
